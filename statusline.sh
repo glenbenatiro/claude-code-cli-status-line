@@ -93,8 +93,9 @@ line2=()
 
 if [ -n "$used_pct" ] && [ -n "$remaining_pct" ] && [ -n "$ctx_size" ]; then
   ctx_size_k=$(( ctx_size / 1000 ))
-  line2+=("$(printf '\033[00;33m[ctx: %.0f%%u %.0f%%r %dk]\033[00m' \
-    "$used_pct" "$remaining_pct" "$ctx_size_k")")
+  used_pct_int=$(printf '%.0f' "$used_pct")
+  used_k=$(( (ctx_size * used_pct_int + 50000) / 100000 ))
+  line2+=("$(printf '\033[00;33m[ctx: %.0f%% %dk/%dk]\033[00m' "$used_pct" "$used_k" "$ctx_size_k")")
 fi
 
 if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then

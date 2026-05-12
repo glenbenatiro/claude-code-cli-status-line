@@ -6,14 +6,14 @@ A compact, 3-line status bar for [Claude Code CLI](https://claude.ai/code) that 
 
 ```
 [sonnet-4-6] [high] [thinking:off]
-[ctx: 12%u 88%r 200k] [5h: used 1% · 22%/h left in 4h31m | 7d: used 8% · 15%/d left in 4d3h]
+[ctx: 12% 24k/200k] [5h: used 1% · 22%/h left in 4h31m | 7d: used 8% · 15%/d left in 4d3h]
 [v1.0.71] [my-project]
 ```
 
 | Line | What it shows |
 |------|---------------|
 | 1 | Model name (sans `claude-` prefix), effort level, extended thinking on/off |
-| 2 | Context window used/remaining/total · 5-hour and 7-day rate-limit usage with pacing budget |
+| 2 | Context window used % and used/total token counts · 5-hour and 7-day rate-limit usage with pacing budget |
 | 3 | Claude Code version · current working directory (basename) |
 
 ## What the pacing budget means
@@ -75,7 +75,7 @@ The status line will appear at the bottom of the terminal after restarting.
 | Model | `[sonnet-4-6]` | Leading `claude-` is stripped |
 | Effort | `[high]` | Omitted when data is unavailable |
 | Thinking | `[thinking:on]` / `[thinking:off]` | Always shown |
-| Context | `[ctx: 12%u 88%r 200k]` | Used %, remaining %, total in thousands of tokens |
+| Context | `[ctx: 12% 24k/200k]` | Used % and used/total token counts (in thousands) |
 | 5h usage | `[5h: used 1% · 22%/h left in 4h31m]` | Pacing budget per remaining hour |
 | 7d usage | `[7d: used 8% · 15%/d left in 4d3h]` | Pacing budget per remaining day |
 | Version | `[v1.0.71]` | Rightmost on line 3 — first to clip on narrow terminals |
