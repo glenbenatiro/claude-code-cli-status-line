@@ -6,9 +6,11 @@ A compact, 3-line status bar for [Claude Code CLI](https://claude.ai/code) that 
 
 ```
 [sonnet-4-6] [high] [thinking:off]
-[ctx: 12% 24k/200k] [5h: used 1% · 22%/h left in 4h31m | 7d: used 8% · 15%/d left in 4d3h]
+[ctx: 12% 24k/200k] [5h: used 1% · ≤20% max in 4h31m | 7d: used 8% · ≤57% max in 4d3h]
 [v1.0.71] [my-project]
 ```
+
+The `used X%` number is color-coded based on how much of the pacing ceiling it has consumed (green → yellow → red as it approaches or exceeds the ceiling).
 
 | Line | What it shows |
 |------|---------------|
@@ -16,21 +18,32 @@ A compact, 3-line status bar for [Claude Code CLI](https://claude.ai/code) that 
 | 2 | Context window used % and used/total token counts · 5-hour and 7-day rate-limit usage with pacing budget |
 | 3 | Claude Code version · current working directory (basename) |
 
-## What the pacing budget means
+## What the pacing ceiling means
 
-The usage segment shows `used X% · Y%/h left` (5-hour window) and `used X% · Y%/d left` (7-day window).
+The usage segment shows `used X% · ≤Y% max` for both the 5-hour and 7-day windows.
 
-The rate is calculated as:
+`≤Y% max` is the **pacing ceiling** — the maximum cumulative usage you should have reached by now to stay on track for even consumption across the full reset window. It is calculated as:
 
 ```
-rate = remaining_budget / remaining_time_units
-     = (100% - used%) / hours_remaining   ← for 5h window
-     = (100% - used%) / days_remaining    ← for 7d window
+ceiling = (elapsed_units + 1) / total_units × 100
+
+  5h window: total_units = 5,  unit = 1 hour
+  7d window: total_units = 7,  unit = 1 day
 ```
 
-This tells you how much of your quota you can burn per remaining hour or day while still spreading usage evenly until the window resets. If the rate is high, you're running low; if it's low, you have headroom.
+The `+1` gives credit for the current unit still being in progress, so in the final hour (or day) the ceiling reaches 100%.
 
-The statusline refreshes every 5 seconds, so the rate updates continuously as time passes.
+The ceiling updates in discrete steps — hourly for the 5h window, daily for the 7d window — so it acts as a simple "should I be at or below this by now?" check.
+
+The `used X%` number is color-coded by how much of the ceiling the current spend has consumed:
+
+| Spend as % of ceiling | Color  | Meaning               |
+|-----------------------|--------|-----------------------|
+| 0–70%                 | Green  | Well within pace      |
+| 71–99%                | Yellow | Approaching the limit |
+| 100%+                 | Red    | At or over limit      |
+
+The statusline refreshes every 5 seconds.
 
 ## Prerequisites
 
@@ -76,8 +89,8 @@ The status line will appear at the bottom of the terminal after restarting.
 | Effort | `[high]` | Omitted when data is unavailable |
 | Thinking | `[thinking:on]` / `[thinking:off]` | Always shown |
 | Context | `[ctx: 12% 24k/200k]` | Used % and used/total token counts (in thousands) |
-| 5h usage | `[5h: used 1% · 22%/h left in 4h31m]` | Pacing budget per remaining hour |
-| 7d usage | `[7d: used 8% · 15%/d left in 4d3h]` | Pacing budget per remaining day |
+| 5h usage | `[5h: used 1% · ≤20% max in 4h31m]` | Used % (color-coded) vs hourly pacing ceiling |
+| 7d usage | `[7d: used 8% · ≤57% max in 4d3h]` | Used % (color-coded) vs daily pacing ceiling |
 | Version | `[v1.0.71]` | Rightmost on line 3 — first to clip on narrow terminals |
 | Directory | `[my-project]` | `basename` of `$CWD` only |
 
