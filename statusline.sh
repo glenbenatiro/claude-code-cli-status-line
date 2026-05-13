@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Source of truth: https://github.com/glenbenatiro/claude-code-cli-status-line
+# If you edit this file, please also update that repo.
 input=$(cat)
 
 # Context window
@@ -29,26 +31,28 @@ cwd_short=$(basename "$cwd")
 # Claude Code version
 cc_version=$(echo "$input" | jq -r '.version // empty')
 
-# Compute forward-looking burn rate: remaining budget / remaining time units.
-# Args: used_pct (float), resets_at (Unix epoch), unit_secs (seconds per unit)
-# Prints an integer rate, or nothing when inputs are invalid/missing.
-paced_rate() {
+# Pacing ceiling: the max usage% you should have reached by now for even
+# consumption across the full period.
+# Args: used_pct (float), resets_at (Unix epoch), unit_secs (int), total_units (int)
+# Prints an integer ceiling%, or nothing when inputs are invalid/missing.
+pace_ceiling() {
   local used_pct_float="$1"
   local resets_at="$2"
   local unit_secs="$3"
-  [ -z "$used_pct_float" ] || [ -z "$resets_at" ] || [ -z "$unit_secs" ] && return
-  local now secs_remaining used_pct_int remaining_budget half_remaining rate
+  local total_units="$4"
+  [ -z "$used_pct_float" ] || [ -z "$resets_at" ] || [ -z "$unit_secs" ] || [ -z "$total_units" ] && return
+  local now secs_remaining total_secs elapsed_secs elapsed_units ceiling
   now=$(date +%s)
   secs_remaining=$(( resets_at - now ))
   [ "$secs_remaining" -le 0 ] && return
-  used_pct_int=$(printf '%.0f' "$used_pct_float")
-  remaining_budget=$(( 100 - used_pct_int ))
-  # rate = round(remaining_budget * unit_secs / secs_remaining)
-  # Uses integer arithmetic only — no bc/awk dependency.
-  half_remaining=$(( secs_remaining / 2 ))
-  rate=$(( (remaining_budget * unit_secs + half_remaining) / secs_remaining ))
-  [ "$rate" -lt 0 ] && return
-  echo "$rate"
+  total_secs=$(( unit_secs * total_units ))
+  elapsed_secs=$(( total_secs - secs_remaining ))
+  [ "$elapsed_secs" -lt 0 ] && elapsed_secs=0
+  elapsed_units=$(( elapsed_secs / unit_secs ))
+  ceiling=$(( (elapsed_units + 1) * 100 / total_units ))
+  [ "$ceiling" -gt 100 ] && ceiling=100
+  [ "$ceiling" -lt 0 ] && ceiling=0
+  echo "$ceiling"
 }
 
 # Format a Unix epoch as a compact countdown: 3d2h, 1h23m, or 42m.
@@ -101,12 +105,21 @@ fi
 if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
   rate_str=""
 
+  # ANSI color constants for pacing ceiling indicator
+  MAGENTA=$'\033[00;35m' GREEN=$'\033[00;32m' YELLOW=$'\033[00;33m' RED=$'\033[00;31m'
+
   if [ -n "$five_hour_pct" ]; then
-    five_actual="$(printf '%.0f' "$five_hour_pct")%"
-    five_rate=$(paced_rate "$five_hour_pct" "$five_hour_resets" 3600)
+    five_used_int=$(printf '%.0f' "$five_hour_pct")
+    five_actual="${five_used_int}%"
+    five_ceiling=$(pace_ceiling "$five_hour_pct" "$five_hour_resets" 3600 5)
     five_cd=$(compact_countdown "$five_hour_resets")
-    if [ -n "$five_rate" ]; then
-      five_seg="5h: used ${five_actual} · ${five_rate}%/h left"
+    if [ -n "$five_ceiling" ]; then
+      gap=$(( five_ceiling - five_used_int ))
+      if   [ "$gap" -le 0  ]; then ceil_color="$RED"
+      elif [ "$gap" -le 20 ]; then ceil_color="$YELLOW"
+      else                          ceil_color="$GREEN"
+      fi
+      five_seg="5h: used ${five_actual} · ${ceil_color}≤${five_ceiling}% max${MAGENTA}"
     else
       five_seg="5h: used ${five_actual}"
     fi
@@ -115,11 +128,17 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
   fi
 
   if [ -n "$seven_day_pct" ]; then
-    seven_actual="$(printf '%.0f' "$seven_day_pct")%"
-    seven_rate=$(paced_rate "$seven_day_pct" "$seven_day_resets" 86400)
+    seven_used_int=$(printf '%.0f' "$seven_day_pct")
+    seven_actual="${seven_used_int}%"
+    seven_ceiling=$(pace_ceiling "$seven_day_pct" "$seven_day_resets" 86400 7)
     seven_cd=$(compact_countdown "$seven_day_resets")
-    if [ -n "$seven_rate" ]; then
-      seven_seg="7d: used ${seven_actual} · ${seven_rate}%/d left"
+    if [ -n "$seven_ceiling" ]; then
+      gap=$(( seven_ceiling - seven_used_int ))
+      if   [ "$gap" -le 0  ]; then ceil_color="$RED"
+      elif [ "$gap" -le 20 ]; then ceil_color="$YELLOW"
+      else                          ceil_color="$GREEN"
+      fi
+      seven_seg="7d: used ${seven_actual} · ${ceil_color}≤${seven_ceiling}% max${MAGENTA}"
     else
       seven_seg="7d: used ${seven_actual}"
     fi
