@@ -114,10 +114,10 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
     five_ceiling=$(pace_ceiling "$five_hour_pct" "$five_hour_resets" 3600 5)
     five_cd=$(compact_countdown "$five_hour_resets")
     if [ -n "$five_ceiling" ]; then
-      gap=$(( five_ceiling - five_used_int ))
-      if   [ "$gap" -le 0  ]; then ceil_color="$RED"
-      elif [ "$gap" -le 20 ]; then ceil_color="$YELLOW"
-      else                          ceil_color="$GREEN"
+      ratio=$(( five_used_int * 100 / five_ceiling ))
+      if   [ "$ratio" -ge 100 ]; then ceil_color="$RED"
+      elif [ "$ratio" -ge 71  ]; then ceil_color="$YELLOW"
+      else                             ceil_color="$GREEN"
       fi
       five_seg="5h: used ${five_actual} · ${ceil_color}≤${five_ceiling}% max${MAGENTA}"
     else
@@ -133,10 +133,10 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
     seven_ceiling=$(pace_ceiling "$seven_day_pct" "$seven_day_resets" 86400 7)
     seven_cd=$(compact_countdown "$seven_day_resets")
     if [ -n "$seven_ceiling" ]; then
-      gap=$(( seven_ceiling - seven_used_int ))
-      if   [ "$gap" -le 0  ]; then ceil_color="$RED"
-      elif [ "$gap" -le 20 ]; then ceil_color="$YELLOW"
-      else                          ceil_color="$GREEN"
+      ratio=$(( seven_used_int * 100 / seven_ceiling ))
+      if   [ "$ratio" -ge 100 ]; then ceil_color="$RED"
+      elif [ "$ratio" -ge 71  ]; then ceil_color="$YELLOW"
+      else                             ceil_color="$GREEN"
       fi
       seven_seg="7d: used ${seven_actual} · ${ceil_color}≤${seven_ceiling}% max${MAGENTA}"
     else
