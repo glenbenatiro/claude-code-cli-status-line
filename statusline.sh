@@ -119,7 +119,7 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
       elif [ "$ratio" -ge 71  ]; then ceil_color="$YELLOW"
       else                             ceil_color="$GREEN"
       fi
-      five_seg="5h: used ${five_actual} · ${ceil_color}≤${five_ceiling}% max${MAGENTA}"
+      five_seg="5h: used ${ceil_color}${five_actual}${MAGENTA} · ≤${five_ceiling}% max"
     else
       five_seg="5h: used ${five_actual}"
     fi
@@ -138,7 +138,7 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
       elif [ "$ratio" -ge 71  ]; then ceil_color="$YELLOW"
       else                             ceil_color="$GREEN"
       fi
-      seven_seg="7d: used ${seven_actual} · ${ceil_color}≤${seven_ceiling}% max${MAGENTA}"
+      seven_seg="7d: used ${ceil_color}${seven_actual}${MAGENTA} · ≤${seven_ceiling}% max"
     else
       seven_seg="7d: used ${seven_actual}"
     fi
