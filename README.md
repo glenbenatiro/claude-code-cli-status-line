@@ -91,8 +91,9 @@ The status line will appear at the bottom of the terminal after restarting.
 | Context | `[ctx: 12% 24k/200k]` | Used % and used/total token counts (in thousands) |
 | 5h usage | `[5h: used 1% · ≤20% max in 4h31m]` | Used % (color-coded) vs hourly pacing ceiling |
 | 7d usage | `[7d: used 8% · ≤57% max in 4d3h]` | Used % (color-coded) vs daily pacing ceiling |
-| Version | `[v1.0.71]` | Rightmost on line 3 — first to clip on narrow terminals |
+| Version | `[v1.0.71]` | Leftmost on line 3 |
 | Directory | `[my-project]` | `basename` of `$CWD` only |
+| Branch | `[⎇ main]` | Current git branch from `$CWD`; short SHA if detached; omitted outside a repo. Rightmost on line 3 — first to clip on narrow terminals |
 
 ## Using this with an LLM assistant
 
