@@ -28,6 +28,14 @@ thinking_enabled=$(echo "$input" | jq -r '.thinking.enabled // empty')
 cwd=$(echo "$input" | jq -r '.cwd // empty')
 cwd_short=$(basename "$cwd")
 
+# Current git branch (detected from cwd; empty when not a git repo)
+git_branch=""
+if [ -n "$cwd" ]; then
+  git_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
+  # Detached HEAD -> show short commit sha instead
+  [ "$git_branch" = "HEAD" ] && git_branch=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+fi
+
 # Claude Code version
 cc_version=$(echo "$input" | jq -r '.version // empty')
 
@@ -150,12 +158,13 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Line 3: version · cwd (version is rightmost so it clips first on narrow terminals)
+# Line 3: version · cwd · git branch
 # ---------------------------------------------------------------------------
 line3=()
 
 [ -n "$cc_version" ] && line3+=("$(printf '\033[00;34m[v%s]\033[00m' "$cc_version")")
 [ -n "$cwd_short" ]  && line3+=("$(printf '\033[00;32m[%s]\033[00m' "$cwd_short")")
+[ -n "$git_branch" ] && line3+=("$(printf '\033[00;36m[⎇ %s]\033[00m' "$git_branch")")
 
 # ---------------------------------------------------------------------------
 # Output
