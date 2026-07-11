@@ -8,6 +8,10 @@ used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 remaining_pct=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
 ctx_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
 
+# Cache tokens from the last API call (null before first call / right after /compact)
+cache_create=$(echo "$input" | jq -r '.context_window.current_usage.cache_creation_input_tokens // empty')
+cache_read=$(echo "$input"   | jq -r '.context_window.current_usage.cache_read_input_tokens // empty')
+
 # Rate limits
 five_hour_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 five_hour_resets=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
@@ -38,6 +42,9 @@ fi
 
 # Claude Code version
 cc_version=$(echo "$input" | jq -r '.version // empty')
+
+# Round a token count to the nearest 1k. Prints nothing if input is empty.
+fmt_k() { [ -z "$1" ] && return; echo $(( ($1 + 500) / 1000 )); }
 
 # Pacing ceiling: the max usage% you should have reached by now for even
 # consumption across the full period.
@@ -99,7 +106,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Line 2: context window · rate limits with pacing budget
+# Line 2: context window · cache
 # ---------------------------------------------------------------------------
 line2=()
 
@@ -109,6 +116,18 @@ if [ -n "$used_pct" ] && [ -n "$remaining_pct" ] && [ -n "$ctx_size" ]; then
   used_k=$(( (ctx_size * used_pct_int + 50000) / 100000 ))
   line2+=("$(printf '\033[00;33m[ctx: %.0f%% %dk/%dk]\033[00m' "$used_pct" "$used_k" "$ctx_size_k")")
 fi
+
+# Cache usage from the last API call. Skipped entirely when current_usage is null.
+if [ -n "$cache_create" ] || [ -n "$cache_read" ]; then
+  cw_k=$(fmt_k "$cache_create")
+  cr_k=$(fmt_k "$cache_read")
+  line2+=("$(printf '\033[00;33m[cache w:%sk r:%sk]\033[00m' "${cw_k:-0}" "${cr_k:-0}")")
+fi
+
+# ---------------------------------------------------------------------------
+# Line 3: 5-hour · weekly rate limits with pacing budget
+# ---------------------------------------------------------------------------
+line3=()
 
 if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
   rate_str=""
@@ -154,21 +173,22 @@ if [ -n "$five_hour_pct" ] || [ -n "$seven_day_pct" ]; then
     rate_str="${rate_str:+$rate_str | }$seven_seg"
   fi
 
-  line2+=("$(printf '\033[00;35m[%s]\033[00m' "$rate_str")")
+  line3+=("$(printf '\033[00;35m[%s]\033[00m' "$rate_str")")
 fi
 
 # ---------------------------------------------------------------------------
-# Line 3: version · cwd · git branch
+# Line 4: version · cwd · git branch
 # ---------------------------------------------------------------------------
-line3=()
+line4=()
 
-[ -n "$cc_version" ] && line3+=("$(printf '\033[00;34m[v%s]\033[00m' "$cc_version")")
-[ -n "$cwd_short" ]  && line3+=("$(printf '\033[00;32m[%s]\033[00m' "$cwd_short")")
-[ -n "$git_branch" ] && line3+=("$(printf '\033[00;36m[⎇ %s]\033[00m' "$git_branch")")
+[ -n "$cc_version" ] && line4+=("$(printf '\033[00;34m[v%s]\033[00m' "$cc_version")")
+[ -n "$cwd_short" ]  && line4+=("$(printf '\033[00;32m[%s]\033[00m' "$cwd_short")")
+[ -n "$git_branch" ] && line4+=("$(printf '\033[00;36m[⎇ %s]\033[00m' "$git_branch")")
 
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
 printf '%s\n' "${line1[*]}"
 printf '%s\n' "${line2[*]}"
-printf '%s'   "${line3[*]}"
+printf '%s\n' "${line3[*]}"
+printf '%s'   "${line4[*]}"
