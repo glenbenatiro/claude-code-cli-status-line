@@ -1,12 +1,13 @@
 # claude-code-cli-status-line
 
-A compact, 3-line status bar for [Claude Code CLI](https://claude.ai/code) that shows model info, context window usage, rate-limit pacing, and working directory — all in one glance.
+A compact, 4-line status bar for [Claude Code CLI](https://claude.ai/code) that shows model info, context window usage, cache token usage, rate-limit pacing, and working directory — all in one glance.
 
 ## Example output
 
 ```
 [sonnet-4-6] [high] [thinking:off]
-[ctx: 12% 24k/200k] [5h: used 1% · ≤20% max in 4h31m | 7d: used 8% · ≤57% max in 4d3h]
+[ctx: 12% 24k/200k] [cache w:18k r:45k]
+[5h: used 1% · ≤20% max in 4h31m | 7d: used 8% · ≤57% max in 4d3h]
 [v1.0.71] [my-project]
 ```
 
@@ -15,8 +16,9 @@ The `used X%` number is color-coded based on how much of the pacing ceiling it h
 | Line | What it shows |
 |------|---------------|
 | 1 | Model name (sans `claude-` prefix), effort level, extended thinking on/off |
-| 2 | Context window used % and used/total token counts · 5-hour and 7-day rate-limit usage with pacing budget |
-| 3 | Claude Code version · current working directory (basename) |
+| 2 | Context window used % and used/total token counts · cache tokens written/read on the last API call |
+| 3 | 5-hour and 7-day rate-limit usage with pacing budget |
+| 4 | Claude Code version · current working directory (basename) · git branch |
 
 ## What the pacing ceiling means
 
@@ -89,11 +91,12 @@ The status line will appear at the bottom of the terminal after restarting.
 | Effort | `[high]` | Omitted when data is unavailable |
 | Thinking | `[thinking:on]` / `[thinking:off]` | Always shown |
 | Context | `[ctx: 12% 24k/200k]` | Used % and used/total token counts (in thousands) |
+| Cache | `[cache w:18k r:45k]` | Cache tokens written (`w`) and read (`r`) on the last API call, in thousands. Omitted before the first API call and right after `/compact` (when `current_usage` is `null`) |
 | 5h usage | `[5h: used 1% · ≤20% max in 4h31m]` | Used % (color-coded) vs hourly pacing ceiling |
 | 7d usage | `[7d: used 8% · ≤57% max in 4d3h]` | Used % (color-coded) vs daily pacing ceiling |
-| Version | `[v1.0.71]` | Leftmost on line 3 |
+| Version | `[v1.0.71]` | Leftmost on line 4 |
 | Directory | `[my-project]` | `basename` of `$CWD` only |
-| Branch | `[⎇ main]` | Current git branch from `$CWD`; short SHA if detached; omitted outside a repo. Rightmost on line 3 — first to clip on narrow terminals |
+| Branch | `[⎇ main]` | Current git branch from `$CWD`; short SHA if detached; omitted outside a repo. Rightmost on line 4 — first to clip on narrow terminals |
 
 ## Using this with an LLM assistant
 
@@ -108,7 +111,7 @@ If you are asking an LLM to install or modify this for you, pass it this context
 
 ## Customization
 
-The script is plain bash with no external dependencies beyond `jq`. Each display segment is a standalone block — you can add, remove, or reorder them by editing the `line1`, `line2`, and `line3` arrays. Colors use standard ANSI escape codes.
+The script is plain bash with no external dependencies beyond `jq`. Each display segment is a standalone block — you can add, remove, or reorder them by editing the `line1`, `line2`, `line3`, and `line4` arrays. Colors use standard ANSI escape codes.
 
 ## License
 
