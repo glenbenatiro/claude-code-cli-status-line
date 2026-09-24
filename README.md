@@ -6,11 +6,10 @@ A boxed, two-column status line for [Claude Code CLI](https://claude.ai/code). I
 
 ```
 ╭────────────────────────────────┬────────────────────────────────╮
-│ claude-opus-5-5 · high         │ 2026-09-24 · 17:14:39 +08:00   │
+│ claude-opus-5-5 · high         │ 2026-09-24 · 17:31:56 +08:00   │
 │ ctx 61% 612k/1000k · 39% left  │ 01h 10m 35s · $3.47 (+$0.00)   │
 │ 5h 72% (≤60%) · 02h 14m 00s    │ cache warm · 93% hit · 58m 00s │
 │ 7d 41% (≤28%) · 5d 08h 00m 00s │ cache w/r 8k/603k · out 2k     │
-│                                │ style Explanatory              │
 ├────────────────────────────────┴────────────────────────────────┤
 │ v2.1.281 · 3f9c2a71 · Fix checkout flow                         │
 │ dir /home/user/projects/my-project · ◆ my-feature               │
@@ -35,11 +34,10 @@ The example is plain text. In a terminal the ctx, limit and cache numbers are co
 
 | Row | Example | Source field | Notes |
 |-----|---------|--------------|-------|
-| Clock | `2026-09-24 · 17:14:39 +08:00` | the machine's own clock | ISO date, time, and UTC offset. Ticks with `refreshInterval`. |
+| Clock | `2026-09-24 · 17:31:56 +08:00` | the machine's own clock | ISO date, time, and UTC offset. Ticks with `refreshInterval`. |
 | Runtime and cost | `01h 10m 35s · $3.47 (+$0.00)` | `cost.total_duration_ms`, `cost.total_cost_usd` | The green `(+$…)` is what the latest turn added (see "Cost delta"). |
 | `cache` | `cache warm · 93% hit · 58m 00s` | `prompt_cache.*` | Warm: `warm`, hit rate, and time until the cache expires. Cold: `cache cold · recache 132k · 2d 06h 34m 30s`, where `recache` is the tokens a cold cache would have to rewrite (it takes the hit rate's place) and the last part is how long ago it went cold, from `expires_at` (`-` if Claude Code no longer reports it). Before any caching is seen it reads `cache not observed`. |
 | Tokens | `cache w/r 8k/603k · out 2k` | `context_window.current_usage.*` | Last API call: cache written, cache read, then output tokens. |
-| `style` | `style Explanatory` | `output_style.name` | Only shown when the style isn't `default`. |
 
 The hit rate is red under 50%, yellow from 50 to 94%, green from 95%.
 
@@ -119,6 +117,7 @@ It only helps while another session is active on the same machine and account. W
 Claude Code runs the whole script from scratch on every refresh, so with `refreshInterval: 1` it runs once a second for every open session. On Linux the expensive part of a small script like this is starting new processes, so the script is written to start as few as possible:
 
 - One `jq` call parses every field at once.
+- Each table cell's display width is measured once and reused, both to size the columns and to pad the cell.
 - Everything else stays inside bash: text widths for the table are counted in bash, helpers return values in variables instead of `$(...)` (each of which forks a subshell), the clock uses bash's built-in time formatting, the cost math is integer math, and the git branch is read directly from `.git/HEAD`.
 - Two rare fallbacks start a process: `wc -L` measures cells containing characters the script doesn't know the width of (emoji, CJK), and `git` handles unusual repository layouts.
 - The two state files are only written when their contents change.
@@ -127,7 +126,7 @@ Measured per run:
 
 | Machine | Time per run | CPU at a 1-second refresh, per open session |
 |---------|--------------|---------------------------------------------|
-| Laptop (WSL) | about 10 to 14 ms | about 1% of a core |
+| Desktop (Ubuntu on WSL2) | about 11 ms | about 1% of a core |
 | 4 to 6 core VPS | about 45 to 75 ms | about 5 to 7% of a core |
 
 Most of what is left is the fixed cost of starting bash and `jq`. If that is still too much on a slow machine, raise `refreshInterval`: at 5 the cost drops to a fifth, and the clock and countdowns update every 5 seconds instead.
@@ -179,7 +178,7 @@ PLAIN=1 ./preview.sh      # strip colors
 ```
 
 - `real-session`: a payload captured from a live session
-- `full`: every field populated, including a worktree and a non-default output style
+- `full`: every field populated, including worktrees
 - `early`: a brand-new session, where most values are null
 
 The field reference is the [Claude Code status line docs](https://code.claude.com/docs/en/statusline).

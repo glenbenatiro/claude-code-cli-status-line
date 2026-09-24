@@ -18,7 +18,6 @@ eval "$(jq -r '
   def n(f): (try f catch null) as $x | if $x == null then "" else ($x | round | tostring) end | @sh;
   "model=\(s(.model.id // .model.display_name))",
   "effort=\(s(.effort.level))",
-  "style=\(s(.output_style.name))",
   "sname=\(s(.session_name))",
   "sid=\(s(.session_id))",
   "prompt_id=\(s(.prompt_id))",
@@ -149,8 +148,9 @@ vw() {
   REPLY=$(printf '%s' "$t" | wc -L)
 }
 
-# Pad a string with spaces to a display width, into PADDED.
-pad() { vw "$1"; local n=$(( $2 - REPLY )); [ "$n" -lt 0 ] && n=0; printf -v PADDED '%s%*s' "$1" "$n" ''; }
+# Pad a string with spaces to a display width, into PADDED. An already measured width can be
+# passed as the third argument so the string isn't measured again.
+pad() { if [ -n "$3" ]; then REPLY=$3; else vw "$1"; fi; local n=$(( $2 - REPLY )); [ "$n" -lt 0 ] && n=0; printf -v PADDED '%s%*s' "$1" "$n" ''; }
 
 # Join non-empty arguments with a separator.
 join_by() { local sep="$1"; shift; local x; REPLY=""; for x in "$@"; do [ -z "$x" ] && continue; REPLY+="${REPLY:+$sep}$x"; done; }
@@ -187,7 +187,6 @@ if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   printf -v cost_delta_fmt '$%d.%02d' $(( d / 100 )) $(( d % 100 ))
 fi
 dur_fmt=""; [ -n "$dur_ms" ] && { fmt_hms $(( dur_ms / 1000 )); dur_fmt="$REPLY"; }
-style_txt=""; [ -n "$style" ] && [ "$style" != "default" ] && style_txt="${GRAY}style${RST} ${style}"
 
 level_color "${ctx_used:-0}"; ctx_c="$REPLY"
 # Rate limits belong to the account, not the session, and a session only learns them from its own
@@ -337,17 +336,18 @@ design_table() {
   [ -n "$cu_cr" ]  && { fmt_tok "$cu_cr";  cr="$REPLY"; }
   [ -n "$cu_out" ] && { fmt_tok "$cu_out"; co="$REPLY"; }
   V2+=("cache w/r ${cw}/${cr} · out ${co}")
-  if [ -n "$style_txt" ]; then V2+=("$style_txt"); fi
   local vtxt="-"; [ -n "$ver" ] && vtxt="v$ver"
   join_by "$D" "${GRAY}${vtxt}${RST}" "${GRAY}${sid_short:--}${RST}" "$session_txt"; local sess_txt="$REPLY"
 
   local rows=${#V[@]}; [ ${#V2[@]} -gt "$rows" ] && rows=${#V2[@]}
-  local w1=0 w2=0 i x
-  for x in "${V[@]}";  do vw "$x"; (( REPLY > w1 )) && w1=$REPLY; done
-  for x in "${V2[@]}"; do vw "$x"; (( REPLY > w2 )) && w2=$REPLY; done
+  # Measure every cell once; the widths size the columns and then pad the cells.
+  local w1=0 w2=0 i x W1=() W2=()
+  for x in "${V[@]}";  do vw "$x"; W1+=("$REPLY"); (( REPLY > w1 )) && w1=$REPLY; done
+  for x in "${V2[@]}"; do vw "$x"; W2+=("$REPLY"); (( REPLY > w2 )) && w2=$REPLY; done
   # The paths span the full width in their own rows; widen the right column if they need more.
-  local wall=$(( w1 + w2 + 3 )) need=0
-  for x in "$where_txt" "$sess_txt" "$cwd_txt"; do vw "$x"; (( REPLY > need )) && need=$REPLY; done
+  local wall=$(( w1 + w2 + 3 )) need=0 ws ww wc
+  vw "$sess_txt"; ws=$REPLY; vw "$where_txt"; ww=$REPLY; vw "$cwd_txt"; wc=$REPLY
+  for x in $ws $ww $wc; do (( x > need )) && need=$x; done
   (( need > wall )) && w2=$(( w2 + need - wall ))
   wall=$(( w1 + w2 + 3 ))
 
@@ -357,13 +357,13 @@ design_table() {
   dash $((w1+2)); d1="$REPLY"; dash $((w2+2)); d2="$REPLY"
   out+="${BORDER}╭${d1}┬${d2}╮${RST}"$'\n'
   for (( i = 0; i < rows; i++ )); do
-    pad "${V[i]:-}" $w1; p1="$PADDED"; pad "${V2[i]:-}" $w2
+    pad "${V[i]:-}" $w1 "${W1[i]:-0}"; p1="$PADDED"; pad "${V2[i]:-}" $w2 "${W2[i]:-0}"
     out+="$B $p1 $B $PADDED $B"$'\n'
   done
   out+="${BORDER}├${d1}┴${d2}┤${RST}"$'\n'
-  pad "$sess_txt" "$wall";  out+="$B $PADDED $B"$'\n'
-  pad "$where_txt" "$wall"; out+="$B $PADDED $B"$'\n'
-  [ -n "$cwd_txt" ] && { pad "$cwd_txt" "$wall"; out+="$B $PADDED $B"$'\n'; }
+  pad "$sess_txt" "$wall" "$ws";  out+="$B $PADDED $B"$'\n'
+  pad "$where_txt" "$wall" "$ww"; out+="$B $PADDED $B"$'\n'
+  [ -n "$cwd_txt" ] && { pad "$cwd_txt" "$wall" "$wc"; out+="$B $PADDED $B"$'\n'; }
   dash $(( wall + 2 )); out+="${BORDER}╰${REPLY}╯${RST}"
   printf '%s' "$out"
 }
