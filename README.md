@@ -175,7 +175,7 @@ If you are asking an LLM to install or modify this for you, pass it this context
 - `refreshInterval` is **seconds**, not milliseconds, and must be **nested inside `statusLine`**, not at the top level of `settings.json`
 - The `command` path must be absolute or use `~` (e.g. `bash ~/.claude/statusline.sh`)
 - After editing, `settings.json` must remain valid JSON. Merge the `statusLine` block into the existing file; do not replace it
-- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effect is the small per-session cost state file described above
+- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effects are two small files: the per-session cost state file and the shared rate-limit file, both described above
 
 ## Customization
 
