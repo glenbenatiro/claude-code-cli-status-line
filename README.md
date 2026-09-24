@@ -37,7 +37,7 @@ The example is plain text. In a terminal the ctx, limit and cache numbers are co
 |-----|---------|--------------|-------|
 | Clock | `2026-09-24 · 16:36:52 +08:00` | the box's own clock | ISO date, time, and UTC offset. Ticks with `refreshInterval`. |
 | Runtime and cost | `01h 10m 35s · $3.47 (+$0.00)` | `cost.total_duration_ms`, `cost.total_cost_usd` | The green `(+$…)` is what the latest turn added (see "Cost delta"). |
-| `cache` | `cache warm · 93% hit · 58m 00s` | `prompt_cache.*` | `warm` or `cold`, hit rate, and time until the cache expires (a cold cache has no expiry, so that part is left out). When cold, `recache 612k` (the tokens a cold cache would have to rewrite) takes the place of the hit rate. |
+| `cache` | `cache warm · 93% hit · 58m 00s` | `prompt_cache.*` | `warm` or `cold`, hit rate, and time until the cache expires. When cold, `recache 612k` (the tokens a cold cache would have to rewrite) takes the place of the hit rate, and the time since it went cold replaces the countdown (`-` if unknown). |
 | Tokens | `cache w/r 8k/603k · out 2k` | `context_window.current_usage.*` | Last API call: cache written, cache read, then output tokens. |
 | `style` | `style Explanatory` | `output_style.name` | Only shown when the style isn't `default`. |
 
