@@ -51,7 +51,7 @@ The hit rate is red under 50%, yellow from 50 to 94%, green from 95%.
 | `dir` | `dir /home/user/projects/my-project · ◆ my-feature` | `workspace.project_dir` (where Claude Code was launched, fixed for the session), current git branch as `⎇ branch`, and `◆ name` when the session is in a Claude Code worktree session (`worktree.name`) |
 | `cwd` | `cwd /home/user/projects/my-project/web · ⌥ feature-xyz` | `workspace.current_dir` (where Claude is working now), and `⌥ name` when that directory is inside any linked git worktree (`workspace.git_worktree`, however it was created). Shown only when it differs from `dir` or a worktree is present. |
 
-The branch, `◆` and `⌥` markers are bright blue. Paths are always shown in full.
+The branch, `◆` and `⌥` markers and a `cold` cache label are bright blue. Paths are always shown in full.
 
 ### Placeholders
 
@@ -67,7 +67,7 @@ The line uses five colors and nothing else:
 | Bright green | Healthy: cost, low context, on pace, warm cache, hit rate 95%+ |
 | Bright yellow | Watch it: ctx 50 to 79%, nearing the pacing ceiling, hit rate 50 to 94% |
 | Bright red | Over: ctx 80%+, at or over the pacing ceiling, hit rate under 50% |
-| Bright blue | Branch and worktree markers |
+| Bright blue | Branch and worktree markers, and a `cold` cache |
 
 Every color reset returns to white rather than the terminal default, so no text falls back to a dim theme color.
 
