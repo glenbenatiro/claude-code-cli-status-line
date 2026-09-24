@@ -1,0 +1,75 @@
+{
+  "session_id": "fixture-real-session-0000-0000-000000000000",
+  "transcript_path": "/home/user/.claude/projects/-home-user-projects/fixture-real-session-0000-0000-000000000000.jsonl",
+  "cwd": "/home/user/projects",
+  "scratchpad_dir": "/tmp/claude-1000/-home-user-projects/fixture-real-session-0000-0000-000000000000/scratchpad",
+  "prompt_id": "fixture-prompt-real",
+  "effort": {
+    "level": "medium"
+  },
+  "session_name": "Claude code statusline JSON outputs",
+  "model": {
+    "id": "claude-opus-5-5[1m]",
+    "display_name": "Opus 5.5 (1M context)"
+  },
+  "workspace": {
+    "current_dir": "/home/user/projects",
+    "project_dir": "/home/user/projects",
+    "added_dirs": []
+  },
+  "version": "2.1.281",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 0.42714599999999997,
+    "total_duration_ms": 338609,
+    "total_api_duration_ms": 34653,
+    "total_lines_added": 0,
+    "total_lines_removed": 0
+  },
+  "context_window": {
+    "total_input_tokens": 64970,
+    "total_output_tokens": 4,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 2,
+      "output_tokens": 4,
+      "cache_creation_input_tokens": 1261,
+      "cache_read_input_tokens": 63707
+    },
+    "used_percentage": 6,
+    "remaining_percentage": 94
+  },
+  "exceeds_200k_tokens": false,
+  "prompt_cache": {
+    "warm": true,
+    "caching_observed": true,
+    "ttl": "1h",
+    "expires_at": 1790230820,
+    "requests": 7,
+    "misses": 0,
+    "expected_rebuilds": 0,
+    "hit_ratio": 0.8964992147374676,
+    "cache_write_tokens": 39000,
+    "miss_recache_tokens": 0,
+    "last_miss_at": null,
+    "last_miss_cause": null,
+    "miss_causes": {},
+    "recache_tokens_if_cold": 63709
+  },
+  "fast_mode": false,
+  "thinking": {
+    "enabled": true
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 1,
+      "resets_at": 1790241600
+    },
+    "seven_day": {
+      "used_percentage": 47,
+      "resets_at": 1790701200
+    }
+  }
+}
