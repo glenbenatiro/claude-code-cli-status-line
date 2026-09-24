@@ -167,6 +167,27 @@ Open `~/.claude/settings.json` and **merge** the following block into it (do not
 
 The status line appears at the bottom of the terminal after restarting.
 
+### What ends up in `~/.claude`
+
+A working install leaves just two files next to your settings:
+
+- `statusline.sh`: the script itself
+- `statusline-rate-limits`: the shared rate-limit file, created on first run (see Shared rate limits)
+
+The per-turn cost state lives outside `~/.claude`, under `${XDG_STATE_HOME:-~/.local/state}/claude-statusline/`.
+
+### Updating
+
+Run the same `curl` command from step 1 again. It replaces the script in place, and running sessions pick it up on their next refresh; no restart needed. The settings don't change. Older settings that pass an argument, like `bash ~/.claude/statusline.sh table`, keep working because the argument is ignored.
+
+### Replacing an older status line
+
+If you used a different status line script before, point `statusLine.command` at `bash ~/.claude/statusline.sh` as in step 2, then delete the old script (for example an old `statusline-command.sh`) once nothing references it. Check with `grep -r statusline ~/.claude/settings*.json`.
+
+### Uninstalling
+
+Remove the `statusLine` block from `~/.claude/settings.json`, then delete `~/.claude/statusline.sh`, `~/.claude/statusline-rate-limits`, and `~/.local/state/claude-statusline/`.
+
 ## Previewing changes
 
 `preview.sh` renders the status line against the sample payloads in `fixtures/`, with reset and cache timestamps shifted to realistic offsets. It uses temporary state and config directories, so it never touches your real cost state or shared rate-limit file.
