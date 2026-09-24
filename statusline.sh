@@ -51,12 +51,13 @@ now=$(date +%s)
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------
-# The whole status line uses four colors: bright green, bright red, bright yellow and pure white.
+# White text, plus bright green, yellow and red for status, and blue for the branch, worktree and cold-cache markers.
 # RST resets *to white*, not to the terminal default, so uncolored text is white too.
 WHITE=$'\033[97m'
 RST=$'\033[0;97m'
 RED=$'\033[91m' GREEN=$'\033[92m' YELLOW=$'\033[93m'
 # Everything else (labels, separators, borders) is white.
+BLUE=$'\033[38;2;95;175;255m'
 GRAY=$WHITE BORDER=$WHITE
 
 # ---------------------------------------------------------------------------
@@ -195,7 +196,7 @@ clock_txt="$(date +%F) · $(date +%H:%M:%S) $(date +%:z)"
 five_txt="";  [ -n "$five_pct" ]  && five_txt="${five_c}${five_pct}%${five_ceil:+ (≤${five_ceil}%)}${RST}${GRAY}${five_in:+ · ${five_in}}${RST}"
 seven_txt=""; [ -n "$seven_pct" ] && seven_txt="${seven_c}${seven_pct}%${seven_ceil:+ (≤${seven_ceil}%)}${RST}${GRAY}${seven_in:+ · ${seven_in}}${RST}"
 
-# Prompt cache: warm · 93% hit · 58m 12s · 1h ttl
+# Prompt cache: warm · 93% hit · 58m 12s (cold: blue, then recache tokens)
 # Hit rate color: under 50 red, 50-94 yellow, 95+ green.
 hit_color() {
   if   [ "$1" -ge 95 ]; then printf '%s' "$GREEN"
@@ -207,7 +208,7 @@ pc_exp_in=$(fmt_until_ms "$pc_exp")
 cache_txt=""
 if [ "$pc_obs" = "true" ]; then
   D="${GRAY} · ${RST}"
-  if [ "$pc_warm" = "true" ]; then cache_txt="${GREEN}warm${RST}"; else cache_txt="${WHITE}cold${RST}"; fi
+  if [ "$pc_warm" = "true" ]; then cache_txt="${GREEN}warm${RST}"; else cache_txt="${BLUE}cold${RST}"; fi
   if [ -n "$pc_hit" ]; then cache_txt+="${D}$(hit_color "$pc_hit")${pc_hit}% hit${RST}"; else cache_txt+="${D}- hit"; fi
   cache_txt+="${D}${GRAY}${pc_exp_in:--}${RST}"
   [ "$pc_warm" != "true" ] && [ -n "$pc_recache" ] && cache_txt+="${D}${YELLOW}recache $(fmt_tok "$pc_recache")${RST}"
@@ -226,10 +227,9 @@ cwd_txt=""
 if [ -n "$cwd" ] && { [ -n "$git_wt" ] || { [ -n "$proj" ] && [ "$cwd" != "$proj" ]; }; }; then
   cwd_txt="cwd ${cwd}"
 fi
-BLUEB=$'\033[38;2;95;175;255m'
-[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUEB}⎇ ${git_branch}${RST}"
-[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUEB}⌥ ${git_wt}${RST}"
-[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUEB}◆ ${wt_name}${RST}"
+[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUE}⎇ ${git_branch}${RST}"
+[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUE}⌥ ${git_wt}${RST}"
+[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUE}◆ ${wt_name}${RST}"
 
 session_txt="${sname:-${GRAY}unnamed${RST}}"
 cost_txt="${cost_fmt:+${GREEN}${cost_fmt}${RST}}${cost_delta_fmt:+ ${GREEN}(+${cost_delta_fmt})${RST}}"
