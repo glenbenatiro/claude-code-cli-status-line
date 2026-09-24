@@ -171,6 +171,44 @@ dur_fmt=""; [ -n "$dur_ms" ] && dur_fmt=$(fmt_hms $(( dur_ms / 1000 )))
 style_txt=""; [ -n "$style" ] && [ "$style" != "default" ] && style_txt="${GRAY}style${RST} ${style}"
 
 ctx_c=$(level_color "${ctx_used:-0}")
+# Rate limits belong to the account, not the session, and a session only learns them from its own
+# API responses, so an idle session keeps showing old numbers. Share the freshest values between
+# sessions through a small file in the Claude config dir. Per window: the newer window (later
+# resets_at) wins; within the same window the higher used % wins, since usage only climbs until reset.
+rl_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-rate-limits"
+rl_tol=300   # resets_at values this close (seconds) are the same window
+f5p="" f5r="" f7p="" f7r=""
+if [ -r "$rl_file" ]; then
+  while read -r rl_k rl_p rl_r _; do
+    [[ "$rl_p" =~ ^[0-9]+$ && "$rl_r" =~ ^[0-9]+$ && "$rl_r" -gt "$now" ]] || continue
+    case "$rl_k" in five) f5p=$rl_p f5r=$rl_r ;; seven) f7p=$rl_p f7r=$rl_r ;; esac
+  done < "$rl_file"
+fi
+
+# merge_limit own_pct own_reset file_pct file_reset -> RL_P RL_R, and RL_CHANGED=1 when the file needs updating
+merge_limit() {
+  local op="$1" or="$2" fp="$3" fr="$4" d
+  RL_CHANGED=0
+  if [ -z "$fp" ]; then RL_P="$op"; RL_R="$or"; [ -n "$op" ] && [ -n "$or" ] && RL_CHANGED=1; return; fi
+  if [ -z "$op" ]; then RL_P="$fp"; RL_R="$fr"; return; fi
+  if [ -z "$or" ]; then RL_P="$op"; RL_R=""; return; fi
+  d=$(( fr - or ))
+  if   [ "$d" -gt "$rl_tol" ];        then RL_P="$fp"; RL_R="$fr"                    # the file has a newer window
+  elif [ "$d" -lt $(( -rl_tol )) ];   then RL_P="$op"; RL_R="$or"; RL_CHANGED=1      # this session has the newer window
+  elif [ "$fp" -gt "$op" ];           then RL_P="$fp"; RL_R="$or"                    # same window, the file is fresher
+  else RL_P="$op"; RL_R="$or"; [ "$op" -gt "$fp" ] && RL_CHANGED=1                   # same window, this session is fresher or equal
+  fi
+}
+merge_limit "$five_pct" "$five_reset" "$f5p" "$f5r";   five_pct="$RL_P";  five_reset="$RL_R";  rl_write=$RL_CHANGED
+merge_limit "$seven_pct" "$seven_reset" "$f7p" "$f7r"; seven_pct="$RL_P"; seven_reset="$RL_R"; [ "$RL_CHANGED" = 1 ] && rl_write=1
+if [ "$rl_write" = 1 ] && [ -d "${rl_file%/*}" ]; then
+  rl_tmp="$rl_file.tmp.$$"
+  {
+    [ -n "$five_pct" ]  && [ -n "$five_reset" ]  && echo "five $five_pct $five_reset"
+    [ -n "$seven_pct" ] && [ -n "$seven_reset" ] && echo "seven $seven_pct $seven_reset"
+  } > "$rl_tmp" 2>/dev/null && chmod 600 "$rl_tmp" 2>/dev/null && mv -f "$rl_tmp" "$rl_file" 2>/dev/null || rm -f "$rl_tmp" 2>/dev/null
+fi
+
 five_ceil=$(pace_ceiling "$five_reset" 3600 5)
 seven_ceil=$(pace_ceiling "$seven_reset" 86400 7)
 five_c=$(pace_color "$five_pct" "$five_ceil")

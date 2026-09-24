@@ -6,8 +6,8 @@
 cd "$(dirname "$0")"
 fixtures="${*:-real-session full early}"
 now=$(date +%s)
-# Previews must not touch the real per-session cost state.
-export XDG_STATE_HOME=$(mktemp -d); trap 'rm -rf "$XDG_STATE_HOME"' EXIT
+# Previews must not touch the real per-session cost state or the shared rate-limit file.
+export XDG_STATE_HOME=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d); trap 'rm -rf "$XDG_STATE_HOME" "$CLAUDE_CONFIG_DIR"' EXIT
 
 for f in $fixtures; do
   if [ -n "$PLAIN" ]; then printf "── %s ──\n" "$f"; else printf "\033[1;37m── %s ──\033[0m\n" "$f"; fi
