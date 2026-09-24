@@ -6,7 +6,7 @@ A boxed, two-column status line for [Claude Code CLI](https://claude.ai/code). I
 
 ```
 ╭────────────────────────────────┬────────────────────────────────╮
-│ Opus 5.5 · high · [💡] · [⚡]  │ 2026-09-24 · 16:36:52 +08:00   │
+│ claude-opus-5-5 · high · [💡]  │ 2026-09-24 · 16:56:47 +08:00   │
 │ ctx 61% 612k/1000k · 39% left  │ 01h 10m 35s · $3.47 (+$0.00)   │
 │ 5h 72% (≤60%) · 02h 14m 00s    │ cache warm · 93% hit · 58m 00s │
 │ 7d 41% (≤28%) · 5d 08h 00m 00s │ cache w/r 8k/603k · out 2k     │
@@ -26,7 +26,7 @@ The example is plain text. In a terminal the ctx, limit and cache numbers are co
 
 | Row | Example | Source field | Notes |
 |-----|---------|--------------|-------|
-| Model line | `Opus 5.5 · high · [💡] · [⚡]` | `model.display_name`, `effort.level`, `thinking.enabled`, `fast_mode` | `[💡]` appears only while thinking is on. `[⚡]` is fast mode; when it is off the brackets stay, empty, so the line doesn't shift. |
+| Model line | `claude-opus-5-5 · high · [💡]` | `model.id`, `effort.level`, `thinking.enabled` | The raw model ID (a 1M-context model shows as `claude-opus-5-5[1m]`). `[💡]` appears only while thinking is on. |
 | `ctx` | `ctx 61% 612k/1000k · 39% left` | `context_window.used_percentage`, `total_input_tokens`, `context_window_size`, `remaining_percentage` | Used % and token amount share one color: green under 50%, yellow 50 to 79%, red 80% and above. |
 | `5h` | `5h 72% (≤60%) · 02h 14m 00s` | `rate_limits.five_hour.*` | Used %, the pacing ceiling (see below), then the time until reset. |
 | `7d` | `7d 41% (≤28%) · 5d 08h 00m 00s` | `rate_limits.seven_day.*` | Same, over the weekly window. |

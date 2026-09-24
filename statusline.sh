@@ -12,10 +12,9 @@ input=$(cat)
 eval "$(jq -r '
   def s(f): (try f catch null) as $x | if $x == null then "" else ($x | tostring) end | @sh;
   def n(f): (try f catch null) as $x | if $x == null then "" else ($x | round | tostring) end | @sh;
-  "model=\(s(.model.display_name // .model.id))",
+  "model=\(s(.model.id // .model.display_name))",
   "effort=\(s(.effort.level))",
   "thinking=\(s(.thinking.enabled))",
-  "fast=\(s(.fast_mode))",
   "style=\(s(.output_style.name))",
   "sname=\(s(.session_name))",
   "sid=\(s(.session_id))",
@@ -246,12 +245,10 @@ cost_txt="${cost_fmt:+${GREEN}${cost_fmt}${RST}}${cost_delta_fmt:+ ${GREEN}(+${c
 # ---------------------------------------------------------------------------
 design_table() {
   local V=() V2=()
-  # Thinking shows only while on; fast mode always shows its brackets: [💡] · [⚡]
-  local think_flag="" fast_flag=""
+  # Thinking shows only while on: [💡]
+  local think_flag=""
   [ "$thinking" = "true" ] && think_flag="[💡]"
-  # Fast mode keeps its brackets when off (two spaces = one emoji wide, so the line doesn't shift)
-  if [ "$fast" = "true" ]; then fast_flag="[⚡]"; else fast_flag="${GRAY}[  ]${RST}"; fi
-  V+=("$(join_by "${GRAY} · ${RST}" "${model:--}" "${effort:--}" "$think_flag" "$fast_flag")")
+  V+=("$(join_by "${GRAY} · ${RST}" "${model:--}" "${effort:--}" "$think_flag")")
   # Null/absent values (session start, after /compact) show "-"
   local ctx_line
   if [ -n "$ctx_txt" ]; then ctx_line="$ctx_txt"
