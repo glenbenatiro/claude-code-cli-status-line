@@ -6,7 +6,7 @@ A boxed, two-column status line for [Claude Code CLI](https://claude.ai/code). I
 
 ```
 ╭────────────────────────────────┬────────────────────────────────╮
-│ claude-opus-5-5 · high · [💡]  │ 2026-09-24 · 16:56:47 +08:00   │
+│ claude-opus-5-5 · high         │ 2026-09-24 · 17:14:39 +08:00   │
 │ ctx 61% 612k/1000k · 39% left  │ 01h 10m 35s · $3.47 (+$0.00)   │
 │ 5h 72% (≤60%) · 02h 14m 00s    │ cache warm · 93% hit · 58m 00s │
 │ 7d 41% (≤28%) · 5d 08h 00m 00s │ cache w/r 8k/603k · out 2k     │
@@ -26,7 +26,7 @@ The example is plain text. In a terminal the ctx, limit and cache numbers are co
 
 | Row | Example | Source field | Notes |
 |-----|---------|--------------|-------|
-| Model line | `claude-opus-5-5 · high · [💡]` | `model.id`, `effort.level`, `thinking.enabled` | The raw model ID (a 1M-context model shows as `claude-opus-5-5[1m]`). `[💡]` appears only while thinking is on. |
+| Model line | `claude-opus-5-5 · high` | `model.id`, `effort.level` | The raw model ID (a 1M-context model shows as `claude-opus-5-5[1m]`), then the effort level. |
 | `ctx` | `ctx 61% 612k/1000k · 39% left` | `context_window.used_percentage`, `total_input_tokens`, `context_window_size`, `remaining_percentage` | Used % and token amount share one color: green under 50%, yellow 50 to 79%, red 80% and above. |
 | `5h` | `5h 72% (≤60%) · 02h 14m 00s` | `rate_limits.five_hour.*` | Used %, the pacing ceiling (see below), then the time until reset. |
 | `7d` | `7d 41% (≤28%) · 5d 08h 00m 00s` | `rate_limits.seven_day.*` | Same, over the weekly window. |
@@ -117,7 +117,7 @@ It only helps while another session is active on the same machine and account. W
 ## Prerequisites
 
 - [Claude Code CLI](https://claude.ai/code)
-- `bash`, and GNU `date` and `wc` (any Linux; on macOS install coreutils)
+- `bash` 4.2 or newer, with a UTF-8 locale (any current Linux; on macOS install a newer bash with Homebrew)
 - [`jq`](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq`)
 
 ## Installation
@@ -179,7 +179,7 @@ If you are asking an LLM to install or modify this for you, pass it this context
 
 ## Customization
 
-The script is plain bash and needs nothing beyond `jq`. Fields are parsed in one `jq` pass at the top; each cell of the table is built in `design_table` near the bottom. To add, remove, or reorder rows, edit the `V` (left column) and `V2` (right column) arrays there. Colors are ANSI codes defined once at the top. Run `./preview.sh` after any change.
+The script is plain bash and needs nothing beyond `jq`. Because it runs every second, it avoids starting processes: each refresh runs one `jq` and otherwise stays inside bash. Helpers return their result in `REPLY` (or `PADDED`) rather than printing into `$(...)`, which would fork a subshell each time, so keep that pattern when adding cells. Fields are parsed in one `jq` pass at the top; each cell of the table is built in `design_table` near the bottom. To add, remove, or reorder rows, edit the `V` (left column) and `V2` (right column) arrays there. Colors are ANSI codes defined once at the top. Run `./preview.sh` after any change.
 
 ## License
 
