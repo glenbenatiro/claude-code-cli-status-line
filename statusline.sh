@@ -3,7 +3,11 @@
 # Reference: https://code.claude.com/docs/en/statusline
 #
 # Any argument is ignored (older settings pass "table").
-input=$(cat)
+#
+# It runs every second, so it avoids starting processes: helpers set variables (REPLY or a named
+# one) instead of printing into $(...), which would fork a subshell each time. Per refresh it
+# starts one jq, and otherwise only touches the filesystem when a state file changes.
+shopt -s extglob
 
 # ---------------------------------------------------------------------------
 # Parse every field in one jq pass. @sh quotes each value so eval is safe.
@@ -14,13 +18,13 @@ eval "$(jq -r '
   def n(f): (try f catch null) as $x | if $x == null then "" else ($x | round | tostring) end | @sh;
   "model=\(s(.model.id // .model.display_name))",
   "effort=\(s(.effort.level))",
-  "thinking=\(s(.thinking.enabled))",
   "style=\(s(.output_style.name))",
   "sname=\(s(.session_name))",
   "sid=\(s(.session_id))",
   "prompt_id=\(s(.prompt_id))",
   "ver=\(s(.version))",
   "cost=\(s(.cost.total_cost_usd))",
+  "cost_u=\(n(.cost.total_cost_usd * 1000000))",
   "dur_ms=\(n(.cost.total_duration_ms))",
   "cwd=\(s(.workspace.current_dir))",
   "proj=\(s(.workspace.project_dir))",
@@ -43,9 +47,9 @@ eval "$(jq -r '
   "pc_exp=\(n(.prompt_cache.expires_at))",
   "pc_hit=\(n(.prompt_cache.hit_ratio * 100))",
   "pc_recache=\(n(.prompt_cache.recache_tokens_if_cold))"
-' <<<"$input" 2>/dev/null)"
+' 2>/dev/null)"
 
-now=$(date +%s)
+printf -v now '%(%s)T' -1
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -65,47 +69,47 @@ GRAY=$WHITE BORDER=$WHITE
 
 # Token count: 16, 64k, 1M, 1.5M
 fmt_tok() {
-  local n="$1"; [ -z "$n" ] && return
+  local n="$1"; REPLY=""; [ -z "$n" ] && return
   if [ "$n" -ge 1000000 ]; then
     local w=$(( n / 1000000 )) f=$(( n % 1000000 / 100000 ))
-    [ "$f" -eq 0 ] && echo "${w}M" || echo "${w}.${f}M"
+    if [ "$f" -eq 0 ]; then REPLY="${w}M"; else REPLY="${w}.${f}M"; fi
   elif [ "$n" -ge 1000 ]; then
-    echo "$(( (n + 500) / 1000 ))k"
+    REPLY="$(( (n + 500) / 1000 ))k"
   else
-    echo "$n"
+    REPLY="$n"
   fi
 }
 
 # Whole seconds as 02h 03m 39s (a day or more: 5d 10h 12m 08s). Hours, minutes and seconds are
 # always zero-padded so the width stays steady while it ticks.
 fmt_hms() {
-  local s="$1"; [ -z "$s" ] && return
+  local s="$1"; REPLY=""; [ -z "$s" ] && return
   local d=$(( s / 86400 )) h=$(( s % 86400 / 3600 )) m=$(( s % 3600 / 60 )) sec=$(( s % 60 ))
-  if [ "$d" -gt 0 ]; then printf '%dd %02dh %02dm %02ds' "$d" "$h" "$m" "$sec"
-  else printf '%02dh %02dm %02ds' "$h" "$m" "$sec"
+  if [ "$d" -gt 0 ]; then printf -v REPLY '%dd %02dh %02dm %02ds' "$d" "$h" "$m" "$sec"
+  else printf -v REPLY '%02dh %02dm %02ds' "$h" "$m" "$sec"
   fi
 }
 
 # Time until a Unix epoch, as fmt_hms. Nothing if already past.
 fmt_until_hms() {
-  local t="$1"; [ -z "$t" ] && return
+  local t="$1"; REPLY=""; [ -z "$t" ] && return
   local s=$(( t - now )); [ "$s" -le 0 ] && return
   fmt_hms "$s"
 }
 
 # Same, minutes and seconds only (58m 12s). Cache lifetimes top out at 1h, so no hours.
 fmt_until_ms() {
-  local t="$1"; [ -z "$t" ] && return
+  local t="$1"; REPLY=""; [ -z "$t" ] && return
   local s=$(( t - now )); [ "$s" -le 0 ] && return
-  printf '%02dm %02ds' $(( s / 60 )) $(( s % 60 ))
+  printf -v REPLY '%02dm %02ds' $(( s / 60 )) $(( s % 60 ))
 }
 
 # Color for a "how full" percentage: green < 50, yellow < 80, red otherwise
 level_color() {
   local p="${1:-0}"
-  if   [ "$p" -ge 80 ]; then printf '%s' "$RED"
-  elif [ "$p" -ge 50 ]; then printf '%s' "$YELLOW"
-  else printf '%s' "$GREEN"
+  if   [ "$p" -ge 80 ]; then REPLY="$RED"
+  elif [ "$p" -ge 50 ]; then REPLY="$YELLOW"
+  else REPLY="$GREEN"
   fi
 }
 
@@ -113,64 +117,79 @@ level_color() {
 # consumption across the full period. Args: resets_at, unit_secs, total_units
 pace_ceiling() {
   local resets_at="$1" unit_secs="$2" total_units="$3"
-  [ -z "$resets_at" ] && return
+  REPLY=""; [ -z "$resets_at" ] && return
   local left=$(( resets_at - now )); [ "$left" -le 0 ] && return
   local elapsed=$(( unit_secs * total_units - left )); [ "$elapsed" -lt 0 ] && elapsed=0
   local ceiling=$(( (elapsed / unit_secs + 1) * 100 / total_units ))
   [ "$ceiling" -gt 100 ] && ceiling=100
-  echo "$ceiling"
+  REPLY="$ceiling"
 }
 
 # Color for used% against its pacing ceiling: green, yellow at 71%+ of it, red at/over it
 pace_color() {
   local used="${1:-0}" ceiling="$2"
-  [ -z "$ceiling" ] && { printf '%s' "$WHITE"; return; }
+  [ -z "$ceiling" ] && { REPLY="$WHITE"; return; }
   local ratio=$(( used * 100 / ceiling ))
-  if   [ "$ratio" -ge 100 ]; then printf '%s' "$RED"
-  elif [ "$ratio" -ge 71 ];  then printf '%s' "$YELLOW"
-  else printf '%s' "$GREEN"
+  if   [ "$ratio" -ge 100 ]; then REPLY="$RED"
+  elif [ "$ratio" -ge 71 ];  then REPLY="$YELLOW"
+  else REPLY="$GREEN"
   fi
 }
 
-# Display width of a string, ignoring color codes (emoji count as 2).
-vw() { printf '%s' "$1" | sed 's/\x1b\[[0-9;]*m//g' | wc -L; }
+# Display width of a string, ignoring color codes. Pure bash for the characters this line uses.
+# Anything else non-ASCII (a session name or path in another script, emoji, wide characters)
+# falls back to wc -L, which knows real character widths.
+vw_utf8=0; vw_probe='·'; [ "${#vw_probe}" -eq 1 ] && vw_utf8=1
+vw() {
+  local t="${1//$'\033['*([0-9;])m/}" rest
+  if [ "$vw_utf8" = 1 ]; then
+    rest="${t//[·≤⎇⌥◆─│]/}"
+    if [[ "$rest" != *[![:ascii:]]* ]]; then REPLY=${#t}; return; fi
+  fi
+  REPLY=$(printf '%s' "$t" | wc -L)
+}
 
-# Pad a string with spaces to a display width.
-pad() { local n=$(( $2 - $(vw "$1") )); [ "$n" -lt 0 ] && n=0; printf '%s%*s' "$1" "$n" ''; }
+# Pad a string with spaces to a display width, into PADDED.
+pad() { vw "$1"; local n=$(( $2 - REPLY )); [ "$n" -lt 0 ] && n=0; printf -v PADDED '%s%*s' "$1" "$n" ''; }
 
 # Join non-empty arguments with a separator.
-join_by() { local sep="$1"; shift; local out="" x; for x in "$@"; do [ -z "$x" ] && continue; out+="${out:+$sep}$x"; done; printf '%s' "$out"; }
+join_by() { local sep="$1"; shift; local x; REPLY=""; for x in "$@"; do [ -z "$x" ] && continue; REPLY+="${REPLY:+$sep}$x"; done; }
 
 # ---------------------------------------------------------------------------
 # Pieces shown in the table
 # ---------------------------------------------------------------------------
 sid_short="${sid:0:8}"
-cost_fmt=""; [ -n "$cost" ] && cost_fmt=$(printf '$%.2f' "$cost")
+cost_fmt=""; [ -n "$cost" ] && printf -v cost_fmt '$%.2f' "$cost"
 
 # Cost added by the most recent turn. The status line is stateless, so remember per session the
 # cost when the current prompt began (= the last cost seen before prompt_id changed).
+# Costs are kept in whole micro-dollars so the math stays in bash.
 cost_delta_fmt=""
-if [ -n "$sid" ] && [ -n "$cost" ]; then
+if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/claude-statusline"
   state_file="$state_dir/$sid"
   st_prompt=""; st_start=""; st_last=""
   [ -r "$state_file" ] && read -r st_prompt st_start st_last < "$state_file"
+  # Files from older versions stored dollars as decimals; start a fresh baseline for those.
+  [[ "$st_start" =~ ^[0-9]+$ && "$st_last" =~ ^[0-9]+$ ]] || st_prompt=""
   cur_prompt="${prompt_id:--}"
-  if   [ -z "$st_prompt" ];              then turn_start="$cost"       # no baseline yet
-  elif [ "$cur_prompt" != "$st_prompt" ]; then turn_start="${st_last:-$cost}"  # new turn began
+  if   [ -z "$st_prompt" ];              then turn_start="$cost_u"     # no baseline yet
+  elif [ "$cur_prompt" != "$st_prompt" ]; then turn_start="$st_last"    # new turn began
   else                                        turn_start="$st_start"
   fi
   # A cost lower than the baseline means the session's cost was reset (/clear)
-  awk -v c="$cost" -v b="$turn_start" 'BEGIN{exit !(c<b)}' && turn_start=0
-  if [ "$cur_prompt $turn_start $cost" != "$st_prompt $st_start $st_last" ]; then
-    mkdir -p "$state_dir" 2>/dev/null && printf '%s %s %s\n' "$cur_prompt" "$turn_start" "$cost" > "$state_file"
+  [ "$cost_u" -lt "$turn_start" ] && turn_start=0
+  if [ "$cur_prompt $turn_start $cost_u" != "$st_prompt $st_start $st_last" ]; then
+    { [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null; } && printf '%s %s %s\n' "$cur_prompt" "$turn_start" "$cost_u" > "$state_file"
   fi
-  cost_delta_fmt=$(awk -v c="$cost" -v b="$turn_start" 'BEGIN{d=c-b; if (d<0) d=0; printf "$%.2f", d}')
+  d=$(( cost_u - turn_start )); [ "$d" -lt 0 ] && d=0
+  d=$(( (d + 5000) / 10000 ))   # to cents
+  printf -v cost_delta_fmt '$%d.%02d' $(( d / 100 )) $(( d % 100 ))
 fi
-dur_fmt=""; [ -n "$dur_ms" ] && dur_fmt=$(fmt_hms $(( dur_ms / 1000 )))
+dur_fmt=""; [ -n "$dur_ms" ] && { fmt_hms $(( dur_ms / 1000 )); dur_fmt="$REPLY"; }
 style_txt=""; [ -n "$style" ] && [ "$style" != "default" ] && style_txt="${GRAY}style${RST} ${style}"
 
-ctx_c=$(level_color "${ctx_used:-0}")
+level_color "${ctx_used:-0}"; ctx_c="$REPLY"
 # Rate limits belong to the account, not the session, and a session only learns them from its own
 # API responses, so an idle session keeps showing old numbers. Share the freshest values between
 # sessions through a small file in the Claude config dir. Per window: the newer window (later
@@ -209,24 +228,26 @@ if [ "$rl_write" = 1 ] && [ -d "${rl_file%/*}" ]; then
   } > "$rl_tmp" 2>/dev/null && chmod 600 "$rl_tmp" 2>/dev/null && mv -f "$rl_tmp" "$rl_file" 2>/dev/null || rm -f "$rl_tmp" 2>/dev/null
 fi
 
-five_ceil=$(pace_ceiling "$five_reset" 3600 5)
-seven_ceil=$(pace_ceiling "$seven_reset" 86400 7)
-five_c=$(pace_color "$five_pct" "$five_ceil")
-seven_c=$(pace_color "$seven_pct" "$seven_ceil")
-five_in=$(fmt_until_hms "$five_reset")
-seven_in=$(fmt_until_hms "$seven_reset")
+pace_ceiling "$five_reset" 3600 5;    five_ceil="$REPLY"
+pace_ceiling "$seven_reset" 86400 7;  seven_ceil="$REPLY"
+pace_color "$five_pct" "$five_ceil";   five_c="$REPLY"
+pace_color "$seven_pct" "$seven_ceil"; seven_c="$REPLY"
+fmt_until_hms "$five_reset";  five_in="$REPLY"
+fmt_until_hms "$seven_reset"; seven_in="$REPLY"
 
 # Context: 61% 612k/1000k · 39% left · 2k out
-fmt_k() { [ -n "$1" ] && echo "$(( ($1 + 500) / 1000 ))k"; }
+in_k="$(( (${in_tok:-0} + 500) / 1000 ))k" size_k="$(( (${ctx_size:-0} + 500) / 1000 ))k"
 ctx_amount=""
-[ -n "$ctx_used" ] && ctx_amount="${ctx_used}% $(fmt_k "${in_tok:-0}")/$(fmt_k "${ctx_size:-0}")"
+[ -n "$ctx_used" ] && ctx_amount="${ctx_used}% ${in_k}/${size_k}"
 ctx_txt=""
 if [ -n "$ctx_used" ]; then
   ctx_txt="${ctx_c}${ctx_amount}${RST}${GRAY} · ${ctx_rem}% left${RST}"
 fi
 
 # Current time, ticks with refreshInterval
-clock_txt="$(date +%F) · $(date +%H:%M:%S) $(date +%:z)"
+printf -v clock_txt '%(%F · %H:%M:%S)T' -1
+printf -v tz '%(%z)T' -1
+clock_txt+=" ${tz:0:3}:${tz:3}"
 
 # Rate limits: 5h 72% 2h14m
 # Each limit: used% (pace allowance) time until reset, e.g. 4% (≤60%) 2h 38m. The used% and allowance share one color.
@@ -236,24 +257,24 @@ seven_txt=""; [ -n "$seven_pct" ] && seven_txt="${seven_c}${seven_pct}%${seven_c
 # Prompt cache: warm · 93% hit · 58m 12s (cold: blue, recache tokens in place of the hit rate, time since it went cold)
 # Hit rate color: under 50 red, 50-94 yellow, 95+ green.
 hit_color() {
-  if   [ "$1" -ge 95 ]; then printf '%s' "$GREEN"
-  elif [ "$1" -ge 50 ]; then printf '%s' "$YELLOW"
-  else printf '%s' "$RED"
+  if   [ "$1" -ge 95 ]; then REPLY="$GREEN"
+  elif [ "$1" -ge 50 ]; then REPLY="$YELLOW"
+  else REPLY="$RED"
   fi
 }
-pc_exp_in=$(fmt_until_ms "$pc_exp")
+fmt_until_ms "$pc_exp"; pc_exp_in="$REPLY"
 cache_txt=""
 if [ "$pc_obs" = "true" ]; then
   D="${GRAY} · ${RST}"
   if [ "$pc_warm" = "true" ]; then cache_txt="${GREEN}warm${RST}"; else cache_txt="${BLUE}cold${RST}"; fi
   # A cold cache shows what it would cost to rebuild in the hit-rate slot.
-  if [ "$pc_warm" != "true" ] && [ -n "$pc_recache" ]; then cache_txt+="${D}${YELLOW}recache $(fmt_tok "$pc_recache")${RST}"
-  elif [ -n "$pc_hit" ]; then cache_txt+="${D}$(hit_color "$pc_hit")${pc_hit}% hit${RST}"
+  if [ "$pc_warm" != "true" ] && [ -n "$pc_recache" ]; then fmt_tok "$pc_recache"; cache_txt+="${D}${YELLOW}recache ${REPLY}${RST}"
+  elif [ -n "$pc_hit" ]; then hit_color "$pc_hit"; cache_txt+="${D}${REPLY}${pc_hit}% hit${RST}"
   else cache_txt+="${D}- hit"; fi
   # Warm: time until it goes cold. Cold: time since it went cold (from expires_at), or "-" if unknown.
   if [ "$pc_warm" = "true" ]; then cache_txt+="${D}${GRAY}${pc_exp_in:--}${RST}"
   else
-    cold_for=""; [ "${pc_exp:-0}" -gt 0 ] && [ "$now" -gt "$pc_exp" ] && cold_for=$(fmt_hms $(( now - pc_exp )))
+    cold_for=""; [ "${pc_exp:-0}" -gt 0 ] && [ "$now" -gt "$pc_exp" ] && { fmt_hms $(( now - pc_exp )); cold_for="$REPLY"; }
     cache_txt+="${D}${GRAY}${cold_for:--}${RST}"
   fi
 elif [ -n "$pc" ]; then
@@ -261,10 +282,26 @@ elif [ -n "$pc" ]; then
 fi
 
 # Where: full launch path, then full cwd when different, branch, worktrees
+# The branch is read straight from .git/HEAD (a linked worktree's .git is a file pointing at its
+# git dir), so no git process runs. Unusual setups fall back to git itself.
 git_branch=""
 if [ -n "$cwd" ]; then
-  git_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
-  [ "$git_branch" = "HEAD" ] && git_branch=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+  gd="$cwd"
+  while [ -n "$gd" ] && [ ! -e "$gd/.git" ]; do gd="${gd%/*}"; done
+  if [ -n "$gd" ]; then
+    head=""
+    if [ -d "$gd/.git" ]; then read -r head < "$gd/.git/HEAD" 2>/dev/null
+    elif read -r gl < "$gd/.git" 2>/dev/null && [[ "$gl" == "gitdir: "* ]]; then
+      gl="${gl#gitdir: }"; [[ "$gl" == /* ]] || gl="$gd/$gl"
+      read -r head < "$gl/HEAD" 2>/dev/null
+    fi
+    if   [[ "$head" == "ref: refs/heads/"* && "$head" != *"/.invalid" ]]; then git_branch="${head#ref: refs/heads/}"
+    elif [[ "$head" =~ ^[0-9a-f]{40,64}$ ]]; then git_branch="${head:0:7}"
+    else
+      git_branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
+      [ "$git_branch" = "HEAD" ] && git_branch=$(git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
+    fi
+  fi
 fi
 where_txt="dir ${proj:-${cwd:--}}"
 cwd_txt=""
@@ -282,15 +319,12 @@ cost_txt="${cost_fmt:+${GREEN}${cost_fmt}${RST}}${cost_delta_fmt:+ ${GREEN}(+${c
 # table: two label/value column pairs inside a rounded box.
 # ---------------------------------------------------------------------------
 design_table() {
-  local V=() V2=()
-  # Thinking shows only while on: [💡]
-  local think_flag=""
-  [ "$thinking" = "true" ] && think_flag="[💡]"
-  V+=("$(join_by "${GRAY} · ${RST}" "${model:--}" "${effort:--}" "$think_flag")")
+  local V=() V2=() D="${GRAY} · ${RST}"
+  V+=("${model:--}${D}${effort:--}")
   # Null/absent values (session start, after /compact) show "-"
   local ctx_line
   if [ -n "$ctx_txt" ]; then ctx_line="$ctx_txt"
-  else ctx_line="${GRAY}- $(fmt_k "${in_tok:-0}")/$(fmt_k "${ctx_size:-0}") · - left${RST}"; fi
+  else ctx_line="${GRAY}- ${in_k}/${size_k} · - left${RST}"; fi
   V+=("ctx ${ctx_line}")
   V+=("5h ${five_txt:--}")
   V+=("7d ${seven_txt:--}")
@@ -298,32 +332,40 @@ design_table() {
   V2+=("$clock_txt")
   V2+=("${dur_fmt:--} · ${cost_txt:--}")
   V2+=("cache ${cache_txt:--}")
-  tokd() { if [ -n "$1" ]; then fmt_tok "$1"; else printf '%s' -; fi; }
-  V2+=("cache w/r $(tokd "$cu_cw")/$(tokd "$cu_cr") · out $(tokd "$cu_out")")
+  local cw="-" cr="-" co="-"
+  [ -n "$cu_cw" ]  && { fmt_tok "$cu_cw";  cw="$REPLY"; }
+  [ -n "$cu_cr" ]  && { fmt_tok "$cu_cr";  cr="$REPLY"; }
+  [ -n "$cu_out" ] && { fmt_tok "$cu_out"; co="$REPLY"; }
+  V2+=("cache w/r ${cw}/${cr} · out ${co}")
   if [ -n "$style_txt" ]; then V2+=("$style_txt"); fi
-  local sess_txt; sess_txt=$(join_by "${GRAY} · ${RST}" "${GRAY}$([ -n "$ver" ] && echo "v$ver" || echo -)${RST}" "${GRAY}${sid_short:--}${RST}" "$session_txt")
+  local vtxt="-"; [ -n "$ver" ] && vtxt="v$ver"
+  join_by "$D" "${GRAY}${vtxt}${RST}" "${GRAY}${sid_short:--}${RST}" "$session_txt"; local sess_txt="$REPLY"
 
   local rows=${#V[@]}; [ ${#V2[@]} -gt "$rows" ] && rows=${#V2[@]}
   local w1=0 w2=0 i x
-  for x in "${V[@]}";  do (( $(vw "$x") > w1 )) && w1=$(vw "$x"); done
-  for x in "${V2[@]}"; do (( $(vw "$x") > w2 )) && w2=$(vw "$x"); done
+  for x in "${V[@]}";  do vw "$x"; (( REPLY > w1 )) && w1=$REPLY; done
+  for x in "${V2[@]}"; do vw "$x"; (( REPLY > w2 )) && w2=$REPLY; done
   # The paths span the full width in their own rows; widen the right column if they need more.
-  local wall=$(( w1 + w2 + 3 )) need
-  need=$(vw "$where_txt"); (( $(vw "$sess_txt") > need )) && need=$(vw "$sess_txt"); (( $(vw "$cwd_txt") > need )) && need=$(vw "$cwd_txt")
+  local wall=$(( w1 + w2 + 3 )) need=0
+  for x in "$where_txt" "$sess_txt" "$cwd_txt"; do vw "$x"; (( REPLY > need )) && need=$REPLY; done
   (( need > wall )) && w2=$(( w2 + need - wall ))
   wall=$(( w1 + w2 + 3 ))
 
-  dash() { printf '─%.0s' $(seq 1 "$1"); }
-  local B="${BORDER}│${RST}"
-  printf '%s╭%s┬%s╮%s\n' "$BORDER" "$(dash $((w1+2)))" "$(dash $((w2+2)))" "$RST"
+  # A run of n box-drawing dashes, into REPLY.
+  dash() { printf -v REPLY '%*s' "$1" ''; REPLY="${REPLY// /─}"; }
+  local B="${BORDER}│${RST}" out="" d1 d2 p1
+  dash $((w1+2)); d1="$REPLY"; dash $((w2+2)); d2="$REPLY"
+  out+="${BORDER}╭${d1}┬${d2}╮${RST}"$'\n'
   for (( i = 0; i < rows; i++ )); do
-    printf '%s %s %s %s %s\n' "$B" "$(pad "${V[i]:-}" $w1)" "$B" "$(pad "${V2[i]:-}" $w2)" "$B"
+    pad "${V[i]:-}" $w1; p1="$PADDED"; pad "${V2[i]:-}" $w2
+    out+="$B $p1 $B $PADDED $B"$'\n'
   done
-  printf '%s├%s┴%s┤%s\n' "$BORDER" "$(dash $((w1+2)))" "$(dash $((w2+2)))" "$RST"
-  printf '%s %s %s\n' "$B" "$(pad "$sess_txt" "$wall")" "$B"
-  printf '%s %s %s\n' "$B" "$(pad "$where_txt" "$wall")" "$B"
-  [ -n "$cwd_txt" ] && printf '%s %s %s\n' "$B" "$(pad "$cwd_txt" "$wall")" "$B"
-  printf '%s╰%s╯%s' "$BORDER" "$(dash $(( wall + 2 )))" "$RST"
+  out+="${BORDER}├${d1}┴${d2}┤${RST}"$'\n'
+  pad "$sess_txt" "$wall";  out+="$B $PADDED $B"$'\n'
+  pad "$where_txt" "$wall"; out+="$B $PADDED $B"$'\n'
+  [ -n "$cwd_txt" ] && { pad "$cwd_txt" "$wall"; out+="$B $PADDED $B"$'\n'; }
+  dash $(( wall + 2 )); out+="${BORDER}╰${REPLY}╯${RST}"
+  printf '%s' "$out"
 }
 
 printf '%s' "$WHITE"
