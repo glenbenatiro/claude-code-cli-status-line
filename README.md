@@ -55,7 +55,7 @@ The branch, `◆` and `⌥` markers and a `cold` cache label are bright blue. Pa
 
 ### Placeholders
 
-Some values are null or absent at session start and right after `/compact` (context percentages, rate limits before the first response, `current_usage`, cache data). Those render as `-` so every row keeps its place. A real zero still shows as `0`.
+Some values are null or absent at session start and right after `/compact` (context percentages, `current_usage`, cache data, and rate limits before the first response unless another session has shared them, see below). Those render as `-` so every row keeps its place. A real zero still shows as `0`.
 
 ## Colors
 
@@ -102,6 +102,18 @@ ${XDG_STATE_HOME:-~/.local/state}/claude-statusline/<session_id>
 
 It holds the current `prompt_id`, the cost when that turn began, and the last cost seen. A new `prompt_id` means a new turn, so the last cost becomes the baseline. A cost lower than the baseline (after `/clear`) resets it. The files are tiny and safe to delete at any time; the delta just restarts from zero.
 
+## Shared rate limits
+
+The 5h and 7d limits belong to your account, but a session only learns them from its own API responses. A session that has been idle for days keeps showing the numbers from its last response. To keep those numbers fresh, every status line run records the limits it sees in a small file, and each session shows the freshest values any session on the machine has seen:
+
+```
+${CLAUDE_CONFIG_DIR:-~/.claude}/statusline-rate-limits
+```
+
+It holds two lines (`five <used %> <resets_at>` and `seven <used %> <resets_at>`), only percentages and timestamps, with mode 600. For each window the newer window (later reset time) wins, and within the same window the higher used % wins, because usage only climbs until the window resets. Expired entries are ignored. A brand-new session, or one just after `/compact`, shows the shared values instead of `-`. The pacing ceiling and reset countdown are computed from the merged values as usual.
+
+It only helps while another session is active on the same machine and account. With no session running, nothing refreshes the numbers. The file is safe to delete at any time, and `CLAUDE_CONFIG_DIR` keeps separate accounts apart.
+
 ## Prerequisites
 
 - [Claude Code CLI](https://claude.ai/code)
@@ -140,7 +152,7 @@ The status line appears at the bottom of the terminal after restarting.
 
 ## Previewing changes
 
-`preview.sh` renders the status line against the sample payloads in `fixtures/`, with reset and cache timestamps shifted to realistic offsets. It uses a temporary state directory, so it never touches your real cost state.
+`preview.sh` renders the status line against the sample payloads in `fixtures/`, with reset and cache timestamps shifted to realistic offsets. It uses temporary state and config directories, so it never touches your real cost state or shared rate-limit file.
 
 ```bash
 ./preview.sh              # all fixtures
@@ -163,7 +175,7 @@ If you are asking an LLM to install or modify this for you, pass it this context
 - `refreshInterval` is **seconds**, not milliseconds, and must be **nested inside `statusLine`**, not at the top level of `settings.json`
 - The `command` path must be absolute or use `~` (e.g. `bash ~/.claude/statusline.sh`)
 - After editing, `settings.json` must remain valid JSON. Merge the `statusLine` block into the existing file; do not replace it
-- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effect is the small per-session cost state file described above
+- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effects are two small files: the per-session cost state file and the shared rate-limit file, both described above
 
 ## Customization
 
