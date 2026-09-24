@@ -196,7 +196,7 @@ clock_txt="$(date +%F) · $(date +%H:%M:%S) $(date +%:z)"
 five_txt="";  [ -n "$five_pct" ]  && five_txt="${five_c}${five_pct}%${five_ceil:+ (≤${five_ceil}%)}${RST}${GRAY}${five_in:+ · ${five_in}}${RST}"
 seven_txt=""; [ -n "$seven_pct" ] && seven_txt="${seven_c}${seven_pct}%${seven_ceil:+ (≤${seven_ceil}%)}${RST}${GRAY}${seven_in:+ · ${seven_in}}${RST}"
 
-# Prompt cache: warm · 93% hit · 58m 12s (cold: blue, then recache tokens)
+# Prompt cache: warm · 93% hit · 58m 12s (cold: blue, recache tokens in place of the hit rate)
 # Hit rate color: under 50 red, 50-94 yellow, 95+ green.
 hit_color() {
   if   [ "$1" -ge 95 ]; then printf '%s' "$GREEN"
@@ -209,9 +209,12 @@ cache_txt=""
 if [ "$pc_obs" = "true" ]; then
   D="${GRAY} · ${RST}"
   if [ "$pc_warm" = "true" ]; then cache_txt="${GREEN}warm${RST}"; else cache_txt="${BLUE}cold${RST}"; fi
-  if [ -n "$pc_hit" ]; then cache_txt+="${D}$(hit_color "$pc_hit")${pc_hit}% hit${RST}"; else cache_txt+="${D}- hit"; fi
-  cache_txt+="${D}${GRAY}${pc_exp_in:--}${RST}"
-  [ "$pc_warm" != "true" ] && [ -n "$pc_recache" ] && cache_txt+="${D}${YELLOW}recache $(fmt_tok "$pc_recache")${RST}"
+  # A cold cache shows what it would cost to rebuild in the hit-rate slot.
+  if [ "$pc_warm" != "true" ] && [ -n "$pc_recache" ]; then cache_txt+="${D}${YELLOW}recache $(fmt_tok "$pc_recache")${RST}"
+  elif [ -n "$pc_hit" ]; then cache_txt+="${D}$(hit_color "$pc_hit")${pc_hit}% hit${RST}"
+  else cache_txt+="${D}- hit"; fi
+  # A cold cache has no expiry, so the countdown slot is dropped instead of showing "-".
+  [ "$pc_warm" = "true" ] && cache_txt+="${D}${GRAY}${pc_exp_in:--}${RST}"
 elif [ -n "$pc" ]; then
   cache_txt="${GRAY}not observed${RST}"
 fi
