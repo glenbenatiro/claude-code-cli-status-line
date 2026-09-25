@@ -8,6 +8,9 @@
 # one) instead of printing into $(...), which would fork a subshell each time. Per refresh it
 # starts one jq, and otherwise only touches the filesystem when a state file changes.
 shopt -s extglob
+# Padding uses ${#var}, which counts bytes unless the locale is UTF-8. Git Bash on Windows often
+# starts with no locale, so "·" and "≤" would count as 2-3 columns and the borders would go jagged.
+case "${LC_ALL:-${LC_CTYPE:-$LANG}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) export LC_ALL=C.UTF-8 ;; esac
 
 # ---------------------------------------------------------------------------
 # Parse every field in one jq pass. @sh quotes each value so eval is safe.
@@ -285,13 +288,16 @@ fi
 # git dir), so no git process runs. Unusual setups fall back to git itself.
 git_branch=""
 if [ -n "$cwd" ]; then
-  gd="$cwd"
-  while [ -n "$gd" ] && [ ! -e "$gd/.git" ]; do gd="${gd%/*}"; done
+  gd="${cwd//\\//}"  # Windows: C:\a\b -> C:/a/b, so the walk-up below can strip segments
+  while [ -n "$gd" ] && [ ! -e "$gd/.git" ]; do
+    [[ "$gd" == */* ]] || { gd=""; break; }
+    gd="${gd%/*}"
+  done
   if [ -n "$gd" ]; then
     head=""
     if [ -d "$gd/.git" ]; then read -r head < "$gd/.git/HEAD" 2>/dev/null
     elif read -r gl < "$gd/.git" 2>/dev/null && [[ "$gl" == "gitdir: "* ]]; then
-      gl="${gl#gitdir: }"; [[ "$gl" == /* ]] || gl="$gd/$gl"
+      gl="${gl#gitdir: }"; [[ "$gl" == /* || "$gl" == [A-Za-z]:* ]] || gl="$gd/$gl"
       read -r head < "$gl/HEAD" 2>/dev/null
     fi
     if   [[ "$head" == "ref: refs/heads/"* && "$head" != *"/.invalid" ]]; then git_branch="${head#ref: refs/heads/}"

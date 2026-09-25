@@ -1,0 +1,95 @@
+{
+  "cwd": "C:\\Users\\user\\projects\\my-project\\web",
+  "session_id": "3f9c2a71-8d4e-4b1a-9c6f-2e7d5a8b1c04",
+  "session_name": "Fix checkout flow",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "\\path\\to\\transcript.jsonl",
+  "model": {
+    "id": "claude-opus-5-5",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "current_dir": "C:\\Users\\user\\projects\\my-project\\web",
+    "project_dir": "C:\\Users\\user\\projects\\my-project",
+    "added_dirs": [],
+    "git_worktree": "feature-xyz",
+    "repo": {
+      "host": "github.com",
+      "owner": "example-org",
+      "name": "my-project"
+    }
+  },
+  "version": "2.1.281",
+  "output_style": {
+    "name": "Explanatory"
+  },
+  "cost": {
+    "total_cost_usd": 3.4712,
+    "total_duration_ms": 4235000,
+    "total_api_duration_ms": 612000,
+    "total_lines_added": 156,
+    "total_lines_removed": 23
+  },
+  "context_window": {
+    "total_input_tokens": 612400,
+    "total_output_tokens": 2310,
+    "context_window_size": 1000000,
+    "used_percentage": 61,
+    "remaining_percentage": 39,
+    "current_usage": {
+      "input_tokens": 1200,
+      "output_tokens": 2310,
+      "cache_creation_input_tokens": 8200,
+      "cache_read_input_tokens": 603000
+    }
+  },
+  "exceeds_200k_tokens": true,
+  "prompt_cache": {
+    "warm": true,
+    "caching_observed": true,
+    "ttl": "1h",
+    "expires_at": 0,
+    "requests": 48,
+    "misses": 2,
+    "expected_rebuilds": 1,
+    "hit_ratio": 0.93,
+    "cache_write_tokens": 352000,
+    "miss_recache_tokens": 310200,
+    "last_miss_at": 0,
+    "last_miss_cause": {
+      "causes": [
+        "tools_changed"
+      ],
+      "tools_added": 2,
+      "tools_removed": 0
+    },
+    "miss_causes": {
+      "tools_changed": 2
+    },
+    "recache_tokens_if_cold": 612000
+  },
+  "fast_mode": true,
+  "effort": {
+    "level": "high"
+  },
+  "thinking": {
+    "enabled": true
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 72.4,
+      "resets_at": 0
+    },
+    "seven_day": {
+      "used_percentage": 41.2,
+      "resets_at": 0
+    }
+  },
+  "worktree": {
+    "name": "my-feature",
+    "path": "/path/to/.claude/worktrees/my-feature",
+    "branch": "worktree-my-feature",
+    "original_cwd": "/path/to/project",
+    "original_branch": "main"
+  }
+}

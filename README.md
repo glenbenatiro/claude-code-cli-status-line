@@ -128,14 +128,17 @@ Measured per run:
 |---------|--------------|---------------------------------------------|
 | Desktop (Ubuntu on WSL2) | about 11 ms | about 1% of a core |
 | 4 to 6 core VPS | about 45 to 75 ms | about 5 to 7% of a core |
+| Desktop (Windows 11, Git Bash) | about 90 ms | up to about 9% of a core |
 
-Most of what is left is the fixed cost of starting bash and `jq`. If that is still too much on a slow machine, raise `refreshInterval`: at 5 the cost drops to a fifth, and the clock and countdowns update every 5 seconds instead.
+Most of what is left is the fixed cost of starting bash and `jq`, which is highest on Windows, where starting a process is slow. If that is still too much on a slow machine, raise `refreshInterval`: at 5 the cost drops to a fifth, and the clock and countdowns update every 5 seconds instead.
 
 ## Prerequisites
 
 - [Claude Code CLI](https://claude.ai/code)
-- `bash` 4.2 or newer, with a UTF-8 locale (any current Linux; on macOS install a newer bash with Homebrew)
-- [`jq`](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq`)
+- `bash` 4.2 or newer (any current Linux; on macOS install a newer bash with Homebrew; on Windows use the bash that comes with [Git for Windows](https://gitforwindows.org/))
+- [`jq`](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq` / `winget install jqlang.jq`)
+
+The script switches to a UTF-8 locale by itself if none is set, so the table borders line up.
 
 ## Installation
 
@@ -166,6 +169,33 @@ Open `~/.claude/settings.json` and **merge** the following block into it (do not
 ### 3. Restart Claude Code
 
 The status line appears at the bottom of the terminal after restarting.
+
+### Windows
+
+This works with Claude Code running natively on Windows (in PowerShell, Command Prompt or Windows Terminal), using the bash from Git for Windows. If you run Claude Code inside WSL, follow the Linux steps instead.
+
+1. Install [Git for Windows](https://gitforwindows.org/) and `jq` (`winget install jqlang.jq`).
+2. Download the script with the `curl` command from step 1, run in Git Bash. From PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest` in Windows PowerShell):
+
+   ```powershell
+   curl.exe -fsSL https://raw.githubusercontent.com/glenbenatiro/claude-code-cli-status-line/main/statusline.sh -o "$HOME\.claude\statusline.sh"
+   ```
+
+3. In `settings.json`, call Git Bash by its full path:
+
+   ```json
+   {
+     "statusLine": {
+       "type": "command",
+       "command": "\"C:/Program Files/Git/bin/bash.exe\" ~/.claude/statusline.sh",
+       "refreshInterval": 1
+     }
+   }
+   ```
+
+   Don't use a plain `bash` here. On Windows it can resolve to `C:\Windows\System32\bash.exe`, which starts WSL instead of Git Bash.
+
+Paths show as Windows paths (`dir C:\Users\you\project`), which is expected. Each run takes longer on Windows (see Performance), so a `refreshInterval` of 2 to 5 is a reasonable choice if you have many sessions open.
 
 ### What ends up in `~/.claude`
 
@@ -201,6 +231,9 @@ PLAIN=1 ./preview.sh      # strip colors
 - `real-session`: a payload captured from a live session
 - `full`: every field populated, including worktrees
 - `early`: a brand-new session, where most values are null
+- `windows`: the `full` payload with Windows paths (`C:\...`), as Claude Code sends them on Windows
+
+To check that the borders line up, every row of a fixture should have the same width: `PLAIN=1 ./preview.sh full | LC_ALL=C.UTF-8 grep '^[│╭├╰]' | LC_ALL=C.UTF-8 awk '{print length}' | sort -u` should print a single number.
 
 The field reference is the [Claude Code status line docs](https://code.claude.com/docs/en/statusline).
 
@@ -212,6 +245,8 @@ If you are asking an LLM to install or modify this for you, pass it this context
 - The settings key is `statusLine` (inside `~/.claude/settings.json`)
 - `refreshInterval` is **seconds**, not milliseconds, and must be **nested inside `statusLine`**, not at the top level of `settings.json`
 - The `command` path must be absolute or use `~` (e.g. `bash ~/.claude/statusline.sh`)
+- On native Windows, the `command` must call Git Bash by full path (`"\"C:/Program Files/Git/bin/bash.exe\" ~/.claude/statusline.sh"`), because a plain `bash` may start WSL. See the Windows section
+- Paths in the JSON may be Windows paths with `\` separators. Code must never assume `/`, and any loop that walks up a path must be sure to end
 - After editing, `settings.json` must remain valid JSON. Merge the `statusLine` block into the existing file; do not replace it
 - The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effects are two small files: the per-session cost state file (under `XDG_STATE_HOME`) and the shared rate-limit file (under `CLAUDE_CONFIG_DIR`, default `~/.claude`), both described above
 - It runs every second, so changes should not add process launches per refresh; see Performance and Customization
