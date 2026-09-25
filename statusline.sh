@@ -145,7 +145,7 @@ vw_utf8=0; vw_probe='·'; [ "${#vw_probe}" -eq 1 ] && vw_utf8=1
 vw() {
   local t="${1//$'\033['*([0-9;])m/}" rest
   if [ "$vw_utf8" = 1 ]; then
-    rest="${t//[·≤⎇⌥◆─│]/}"
+    rest="${t//[·≤─│]/}"
     if [[ "$rest" != *[![:ascii:]]* ]]; then REPLY=${#t}; return; fi
   fi
   REPLY=$(printf '%s' "$t" | wc -L)
@@ -313,9 +313,9 @@ cwd_txt=""
 if [ -n "$cwd" ] && { [ -n "$git_wt" ] || { [ -n "$proj" ] && [ "$cwd" != "$proj" ]; }; }; then
   cwd_txt="cwd ${cwd}"
 fi
-[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUE}⎇ ${git_branch}${RST}"
-[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUE}⌥ ${git_wt}${RST}"
-[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUE}◆ ${wt_name}${RST}"
+[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUE}br ${git_branch}${RST}"
+[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUE}git-wt ${git_wt}${RST}"
+[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUE}wt ${wt_name}${RST}"
 
 session_txt="${sname:-${GRAY}unnamed${RST}}"
 cost_txt="${cost_fmt:+${GREEN}${cost_fmt}${RST}}${cost_delta_fmt:+ ${GREEN}(+${cost_delta_fmt})${RST}}"

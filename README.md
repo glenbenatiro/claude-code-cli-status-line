@@ -12,8 +12,8 @@ A boxed, two-column status line for [Claude Code CLI](https://claude.ai/code). I
 │ 7d 41% (≤28%) · 5d 08h 00m 00s │ cache w/r 8k/603k · out 2k     │
 ├────────────────────────────────┴────────────────────────────────┤
 │ v2.1.281 · 3f9c2a71 · Fix checkout flow                         │
-│ dir /home/user/projects/my-project · ◆ my-feature               │
-│ cwd /home/user/projects/my-project/web · ⌥ feature-xyz          │
+│ dir /home/user/projects/my-project · wt my-feature              │
+│ cwd /home/user/projects/my-project/web · git-wt feature-xyz     │
 ╰─────────────────────────────────────────────────────────────────╯
 ```
 
@@ -46,10 +46,10 @@ The hit rate is red under 50%, yellow from 50 to 94%, green from 95%.
 | Row | Example | Source field |
 |-----|---------|--------------|
 | Session | `v2.1.281 · 3f9c2a71 · Fix checkout flow` | `version`, first 8 characters of `session_id`, `session_name` (`unnamed` if unset) |
-| `dir` | `dir /home/user/projects/my-project · ◆ my-feature` | `workspace.project_dir` (where Claude Code was launched, fixed for the session), current git branch as `⎇ branch` (read from `.git/HEAD`, or a short commit hash when detached), and `◆ name` when the session is in a Claude Code worktree session (`worktree.name`) |
-| `cwd` | `cwd /home/user/projects/my-project/web · ⌥ feature-xyz` | `workspace.current_dir` (where Claude is working now), and `⌥ name` when that directory is inside any linked git worktree (`workspace.git_worktree`, however it was created). Shown only when it differs from `dir` or a worktree is present. |
+| `dir` | `dir /home/user/projects/my-project · wt my-feature` | `workspace.project_dir` (where Claude Code was launched, fixed for the session), current git branch as `br branch` (read from `.git/HEAD`, or a short commit hash when detached), and `wt name` when the session is in a Claude Code worktree session (`worktree.name`) |
+| `cwd` | `cwd /home/user/projects/my-project/web · git-wt feature-xyz` | `workspace.current_dir` (where Claude is working now), and `git-wt name` when that directory is inside any linked git worktree (`workspace.git_worktree`, however it was created). Shown only when it differs from `dir` or a worktree is present. |
 
-The branch, `◆` and `⌥` markers and a `cold` cache label are bright blue. Paths are always shown in full.
+The `br`, `wt` and `git-wt` labels and a `cold` cache label are bright blue. Paths are always shown in full.
 
 ### Placeholders
 
