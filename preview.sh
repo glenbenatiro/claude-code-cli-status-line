@@ -4,7 +4,7 @@
 #   ./preview.sh full            one fixture
 #   PLAIN=1 ./preview.sh         strip colors
 cd "$(dirname "$0")"
-fixtures="${*:-real-session full early}"
+fixtures="${*:-real-session full early windows}"
 now=$(date +%s)
 # Previews must not touch the real per-session cost state or the shared rate-limit file.
 export XDG_STATE_HOME=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d); trap 'rm -rf "$XDG_STATE_HOME" "$CLAUDE_CONFIG_DIR"' EXIT

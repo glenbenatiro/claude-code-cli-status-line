@@ -8,6 +8,9 @@
 # one) instead of printing into $(...), which would fork a subshell each time. Per refresh it
 # starts one jq, and otherwise only touches the filesystem when a state file changes.
 shopt -s extglob
+# Padding uses ${#var}, which counts bytes unless the locale is UTF-8. Git Bash on Windows often
+# starts with no locale, so "·" and "≤" would count as 2-3 columns and the borders would go jagged.
+case "${LC_ALL:-${LC_CTYPE:-$LANG}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) export LC_ALL=C.UTF-8 ;; esac
 
 # ---------------------------------------------------------------------------
 # Parse every field in one jq pass. @sh quotes each value so eval is safe.
@@ -142,7 +145,7 @@ vw_utf8=0; vw_probe='·'; [ "${#vw_probe}" -eq 1 ] && vw_utf8=1
 vw() {
   local t="${1//$'\033['*([0-9;])m/}" rest
   if [ "$vw_utf8" = 1 ]; then
-    rest="${t//[·≤⎇⌥◆─│]/}"
+    rest="${t//[·≤─│]/}"
     if [[ "$rest" != *[![:ascii:]]* ]]; then REPLY=${#t}; return; fi
   fi
   REPLY=$(printf '%s' "$t" | wc -L)
@@ -285,13 +288,16 @@ fi
 # git dir), so no git process runs. Unusual setups fall back to git itself.
 git_branch=""
 if [ -n "$cwd" ]; then
-  gd="$cwd"
-  while [ -n "$gd" ] && [ ! -e "$gd/.git" ]; do gd="${gd%/*}"; done
+  gd="${cwd//\\//}"  # Windows: C:\a\b -> C:/a/b, so the walk-up below can strip segments
+  while [ -n "$gd" ] && [ ! -e "$gd/.git" ]; do
+    [[ "$gd" == */* ]] || { gd=""; break; }
+    gd="${gd%/*}"
+  done
   if [ -n "$gd" ]; then
     head=""
     if [ -d "$gd/.git" ]; then read -r head < "$gd/.git/HEAD" 2>/dev/null
     elif read -r gl < "$gd/.git" 2>/dev/null && [[ "$gl" == "gitdir: "* ]]; then
-      gl="${gl#gitdir: }"; [[ "$gl" == /* ]] || gl="$gd/$gl"
+      gl="${gl#gitdir: }"; [[ "$gl" == /* || "$gl" == [A-Za-z]:* ]] || gl="$gd/$gl"
       read -r head < "$gl/HEAD" 2>/dev/null
     fi
     if   [[ "$head" == "ref: refs/heads/"* && "$head" != *"/.invalid" ]]; then git_branch="${head#ref: refs/heads/}"
@@ -307,9 +313,9 @@ cwd_txt=""
 if [ -n "$cwd" ] && { [ -n "$git_wt" ] || { [ -n "$proj" ] && [ "$cwd" != "$proj" ]; }; }; then
   cwd_txt="cwd ${cwd}"
 fi
-[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUE}⎇ ${git_branch}${RST}"
-[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUE}⌥ ${git_wt}${RST}"
-[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUE}◆ ${wt_name}${RST}"
+[ -n "$git_branch" ] && where_txt+="${GRAY} · ${RST}${BLUE}br ${git_branch}${RST}"
+[ -n "$git_wt" ]     && cwd_txt+="${GRAY} · ${RST}${BLUE}git-wt ${git_wt}${RST}"
+[ -n "$wt_name" ]    && where_txt+="${GRAY} · ${RST}${BLUE}wt ${wt_name}${RST}"
 
 session_txt="${sname:-${GRAY}unnamed${RST}}"
 cost_txt="${cost_fmt:+${GREEN}${cost_fmt}${RST}}${cost_delta_fmt:+ ${GREEN}(+${cost_delta_fmt})${RST}}"
