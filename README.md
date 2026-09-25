@@ -128,7 +128,7 @@ Measured per run:
 |---------|--------------|---------------------------------------------|
 | Desktop (Ubuntu on WSL2) | about 11 ms | about 1% of a core |
 | 4 to 6 core VPS | about 45 to 75 ms | about 5 to 7% of a core |
-| Desktop (Windows 11, Git Bash) | about 90 ms | up to about 9% of a core |
+| Desktop (Windows 11, Git Bash) | about 90 to 130 ms | about 9 to 13% of a core |
 
 Most of what is left is the fixed cost of starting bash and `jq`, which is highest on Windows, where starting a process is slow. If that is still too much on a slow machine, raise `refreshInterval`: at 5 the cost drops to a fifth, and the clock and countdowns update every 5 seconds instead.
 
