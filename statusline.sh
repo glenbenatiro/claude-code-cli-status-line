@@ -167,7 +167,7 @@ cost_fmt=""; [ -n "$cost" ] && printf -v cost_fmt '$%.2f' "$cost"
 # Cost added by the most recent turn. The status line is stateless, so remember per session the
 # cost when the current prompt began (= the last cost seen before prompt_id changed).
 # Costs are kept in whole micro-dollars so the math stays in bash.
-cost_delta_fmt=""
+cost_delta_fmt="" state_file="" rl_fresh=0
 if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/claude-statusline"
   state_file="$state_dir/$sid"
@@ -175,6 +175,9 @@ if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   [ -r "$state_file" ] && read -r st_prompt st_start st_last < "$state_file"
   # Files from older versions stored dollars as decimals; start a fresh baseline for those.
   [[ "$st_start" =~ ^[0-9]+$ && "$st_last" =~ ^[0-9]+$ ]] || st_prompt=""
+  # The cost only changes when an API response arrives, and that response also brought the rate
+  # limits, so a changed cost means this session's limits are fresh (see the shared rate limits below).
+  [ -n "$st_prompt" ] && [ "$cost_u" != "$st_last" ] && rl_fresh=1
   cur_prompt="${prompt_id:--}"
   if   [ -z "$st_prompt" ];              then turn_start="$cost_u"     # no baseline yet
   elif [ "$cur_prompt" != "$st_prompt" ]; then turn_start="$st_last"    # new turn began
@@ -182,9 +185,6 @@ if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   fi
   # A cost lower than the baseline means the session's cost was reset (/clear)
   [ "$cost_u" -lt "$turn_start" ] && turn_start=0
-  if [ "$cur_prompt $turn_start $cost_u" != "$st_prompt $st_start $st_last" ]; then
-    { [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null; } && printf '%s %s %s\n' "$cur_prompt" "$turn_start" "$cost_u" > "$state_file"
-  fi
   d=$(( cost_u - turn_start )); [ "$d" -lt 0 ] && d=0
   d=$(( (d + 5000) / 10000 ))   # to cents
   printf -v cost_delta_fmt '$%d.%02d' $(( d / 100 )) $(( d % 100 ))
@@ -193,9 +193,11 @@ dur_fmt=""; [ -n "$dur_ms" ] && { fmt_hms $(( dur_ms / 1000 )); dur_fmt="$REPLY"
 
 level_color "${ctx_used:-0}"; ctx_c="$REPLY"
 # Rate limits belong to the account, not the session, and a session only learns them from its own
-# API responses, so an idle session keeps showing old numbers. Share the freshest values between
+# API responses, so an idle session keeps showing old numbers. Share the newest values between
 # sessions through a small file in the Claude config dir. Per window: the newer window (later
-# resets_at) wins; within the same window the higher used % wins, since usage only climbs until reset.
+# resets_at) wins. Within the same window, a session that just got an API response (rl_fresh) writes
+# its values and every other session shows the file's. Usage can drop inside a window (a usage
+# reset), so "the higher % wins" would keep showing the old number until the window ends.
 rl_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-rate-limits"
 rl_tol=300   # resets_at values this close (seconds) are the same window
 f5p="" f5r="" f7p="" f7r=""
@@ -206,9 +208,9 @@ if [ -r "$rl_file" ]; then
   done < "$rl_file"
 fi
 
-# merge_limit own_pct own_reset file_pct file_reset -> RL_P RL_R, and RL_CHANGED=1 when the file needs updating
+# merge_limit own_pct own_reset file_pct file_reset own_fresh -> RL_P RL_R, and RL_CHANGED=1 when the file needs updating
 merge_limit() {
-  local op="$1" or="$2" fp="$3" fr="$4" d
+  local op="$1" or="$2" fp="$3" fr="$4" fresh="$5" d
   RL_CHANGED=0
   if [ -z "$fp" ]; then RL_P="$op"; RL_R="$or"; [ -n "$op" ] && [ -n "$or" ] && RL_CHANGED=1; return; fi
   if [ -z "$op" ]; then RL_P="$fp"; RL_R="$fr"; return; fi
@@ -216,18 +218,24 @@ merge_limit() {
   d=$(( fr - or ))
   if   [ "$d" -gt "$rl_tol" ];        then RL_P="$fp"; RL_R="$fr"                    # the file has a newer window
   elif [ "$d" -lt $(( -rl_tol )) ];   then RL_P="$op"; RL_R="$or"; RL_CHANGED=1      # this session has the newer window
-  elif [ "$fp" -gt "$op" ];           then RL_P="$fp"; RL_R="$or"                    # same window, the file is fresher
-  else RL_P="$op"; RL_R="$or"; [ "$op" -gt "$fp" ] && RL_CHANGED=1                   # same window, this session is fresher or equal
+  elif [ "$fresh" = 1 ];              then RL_P="$op"; RL_R="$or"; [ "$op" -ne "$fp" ] && RL_CHANGED=1   # same window, this session just heard from the API
+  else RL_P="$fp"; RL_R="$fr"                                                        # same window, the file is as new or newer
   fi
 }
-merge_limit "$five_pct" "$five_reset" "$f5p" "$f5r";   five_pct="$RL_P";  five_reset="$RL_R";  rl_write=$RL_CHANGED
-merge_limit "$seven_pct" "$seven_reset" "$f7p" "$f7r"; seven_pct="$RL_P"; seven_reset="$RL_R"; [ "$RL_CHANGED" = 1 ] && rl_write=1
+merge_limit "$five_pct" "$five_reset" "$f5p" "$f5r" "$rl_fresh";   five_pct="$RL_P";  five_reset="$RL_R";  rl_write=$RL_CHANGED
+merge_limit "$seven_pct" "$seven_reset" "$f7p" "$f7r" "$rl_fresh"; seven_pct="$RL_P"; seven_reset="$RL_R"; [ "$RL_CHANGED" = 1 ] && rl_write=1
 if [ "$rl_write" = 1 ] && [ -d "${rl_file%/*}" ]; then
   rl_tmp="$rl_file.tmp.$$"
   {
     [ -n "$five_pct" ]  && [ -n "$five_reset" ]  && echo "five $five_pct $five_reset"
     [ -n "$seven_pct" ] && [ -n "$seven_reset" ] && echo "seven $seven_pct $seven_reset"
   } > "$rl_tmp" 2>/dev/null && chmod 600 "$rl_tmp" 2>/dev/null && mv -f "$rl_tmp" "$rl_file" 2>/dev/null || rm -f "$rl_tmp" 2>/dev/null
+fi
+
+# Save the cost state only now. Claude Code kills a run when a newer update arrives; saving it before
+# the shared file would mark this response as seen even if the run died before sharing its limits.
+if [ -n "$state_file" ] && [ "$cur_prompt $turn_start $cost_u" != "$st_prompt $st_start $st_last" ]; then
+  { [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null; } && printf '%s %s %s\n' "$cur_prompt" "$turn_start" "$cost_u" > "$state_file"
 fi
 
 pace_ceiling "$five_reset" 3600 5;    five_ceil="$REPLY"

@@ -98,17 +98,17 @@ Claude Code only reports the session's total cost, and a status line command has
 ${XDG_STATE_HOME:-~/.local/state}/claude-statusline/<session_id>
 ```
 
-It holds one line: the current `prompt_id`, the cost when that turn began, and the last cost seen, both in whole micro-dollars so the math stays in bash. A new `prompt_id` means a new turn, so the last cost becomes the baseline. A cost lower than the baseline (after `/clear`) resets it. The file is only rewritten when something changed. The files are tiny and safe to delete at any time; the delta just restarts from zero. Files written by older versions of the script (decimal dollars) are detected and start a fresh baseline.
+It holds one line: the current `prompt_id`, the cost when that turn began, and the last cost seen, both in whole micro-dollars so the math stays in bash. A new `prompt_id` means a new turn, so the last cost becomes the baseline. A cost lower than the baseline (after `/clear`) resets it. A cost that changed since the last run also tells the shared rate limits that this session just had an API response (see Shared rate limits). The file is only rewritten when something changed, and it is saved at the end of a run, so a run that Claude Code cancels part way through leaves it as it was. The files are tiny and safe to delete at any time; the delta just restarts from zero. Files written by older versions of the script (decimal dollars) are detected and start a fresh baseline.
 
 ## Shared rate limits
 
-The 5h and 7d limits belong to your account, but a session only learns them from its own API responses. A session that has been idle for days keeps showing the numbers from its last response. To keep those numbers fresh, every status line run records the limits it sees in a small file, and each session shows the freshest values any session on the machine has seen:
+The 5h and 7d limits belong to your account, but a session only learns them from its own API responses. A session that has been idle for days keeps showing the numbers from its last response. To keep those numbers fresh, sessions share the newest limits any session on the machine has heard through a small file:
 
 ```
 ${CLAUDE_CONFIG_DIR:-~/.claude}/statusline-rate-limits
 ```
 
-It holds two lines (`five <used %> <resets_at>` and `seven <used %> <resets_at>`), only percentages and timestamps, with mode 600. For each window the newer window (later reset time) wins, and within the same window the higher used % wins, because usage only climbs until the window resets. Expired entries are ignored. A brand-new session, or one just after `/compact`, shows the shared values instead of `-`. The pacing ceiling and reset countdown are computed from the merged values as usual.
+It holds two lines (`five <used %> <resets_at>` and `seven <used %> <resets_at>`), only percentages and timestamps, with mode 600. For each window the newer window (later reset time) wins. Within the same window the newest reading wins: a session whose cost changed since its last run has just had an API response, so it writes its limits to the file, and every other session shows the file's values. Taking the higher of the two numbers instead would go wrong when usage drops inside a window, for example after a usage reset: an idle session would keep putting the old, higher number back until the window ended. Expired entries are ignored. A brand-new session, or one just after `/compact`, shows the shared values instead of `-`. The pacing ceiling and reset countdown are computed from the merged values as usual.
 
 It only helps while another session is active on the same machine and account. With no session running, nothing refreshes the numbers. The file is safe to delete at any time, and `CLAUDE_CONFIG_DIR` keeps separate accounts apart.
 
@@ -220,11 +220,11 @@ Remove the `statusLine` block from `~/.claude/settings.json`, then delete `~/.cl
 
 ## Previewing changes
 
-`preview.sh` renders the status line against the sample payloads in `fixtures/`, with reset and cache timestamps shifted to realistic offsets. It uses temporary state and config directories, so it never touches your real cost state or shared rate-limit file.
+`preview.sh` renders the status line against the sample payloads in `fixtures/`, with reset and cache timestamps shifted to realistic offsets. It gives each fixture its own empty temporary state and config directories, so it never touches your real cost state or shared rate-limit file, and one fixture's rate limits never show up in the next.
 
 ```bash
 ./preview.sh              # all fixtures
-./preview.sh full         # one fixture: real-session, full, or early
+./preview.sh full         # one fixture: real-session, full, early, or windows
 PLAIN=1 ./preview.sh      # strip colors
 ```
 
@@ -234,6 +234,8 @@ PLAIN=1 ./preview.sh      # strip colors
 - `windows`: the `full` payload with Windows paths (`C:\...`), as Claude Code sends them on Windows
 
 To check that the borders line up, every row of a fixture should have the same width: `PLAIN=1 ./preview.sh full | LC_ALL=C.UTF-8 grep '^[│╭├╰]' | LC_ALL=C.UTF-8 awk '{print length}' | sort -u` should print a single number.
+
+`test.sh` checks how sessions share the rate limits. It runs the script as several sessions in turn (an idle one, an active one, one after a usage reset, one on a later window) and checks the 7d cell and the shared file after each step. It also uses temporary directories. It prints `all passed`, or the steps that failed and exits with an error.
 
 The field reference is the [Claude Code status line docs](https://code.claude.com/docs/en/statusline).
 

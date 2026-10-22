@@ -7,9 +7,11 @@ cd "$(dirname "$0")"
 fixtures="${*:-real-session full early windows}"
 now=$(date +%s)
 # Previews must not touch the real per-session cost state or the shared rate-limit file.
-export XDG_STATE_HOME=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d); trap 'rm -rf "$XDG_STATE_HOME" "$CLAUDE_CONFIG_DIR"' EXIT
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 for f in $fixtures; do
+  # Each fixture gets its own empty state, so one fixture's shared rate limits don't show in the next.
+  export XDG_STATE_HOME="$tmp/$f/state" CLAUDE_CONFIG_DIR="$tmp/$f/config"; mkdir -p "$XDG_STATE_HOME" "$CLAUDE_CONFIG_DIR"
   if [ -n "$PLAIN" ]; then printf "── %s ──\n" "$f"; else printf "\033[1;37m── %s ──\033[0m\n" "$f"; fi
   # Move timestamps to fixed offsets from now so countdowns look realistic.
   jq --argjson now "$now" '
