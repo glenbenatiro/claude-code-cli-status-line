@@ -98,19 +98,31 @@ Claude Code only reports the session's total cost, and a status line command has
 ${XDG_STATE_HOME:-~/.local/state}/claude-statusline/<session_id>
 ```
 
-It holds one line: the current `prompt_id`, the cost when that turn began, and the last cost seen, both in whole micro-dollars so the math stays in bash. A new `prompt_id` means a new turn, so the last cost becomes the baseline. A cost lower than the baseline (after `/clear`) resets it. A cost that changed since the last run also tells the shared rate limits that this session just had an API response (see Shared rate limits). The file is only rewritten when something changed, and it is saved at the end of a run, so a run that Claude Code cancels part way through leaves it as it was. The files are tiny and safe to delete at any time; the delta just restarts from zero. Files written by older versions of the script (decimal dollars) are detected and start a fresh baseline.
+It holds one line: the current `prompt_id`, the cost when that turn began, and the last cost seen (both in whole micro-dollars so the math stays in bash), then the session's last 5h and 7d readings (used % and `resets_at` for each, `-` when absent), which tell the shared rate limits when the session has just heard from the API (see Shared rate limits). A new `prompt_id` means a new turn, so the last cost becomes the baseline. A cost lower than the baseline (after `/clear`) resets it. The file is only rewritten when something changed, and it is saved at the end of a run, so a run that Claude Code cancels part way through leaves it as it was. The files are tiny and safe to delete at any time; the delta just restarts from zero. When a new session starts, files untouched for 30 days are deleted. Files from older versions are handled: decimal dollars start a fresh baseline, and the older three-field files simply have no readings yet.
 
 ## Shared rate limits
 
-The 5h and 7d limits belong to your account, but a session only learns them from its own API responses. A session that has been idle for days keeps showing the numbers from its last response. To keep those numbers fresh, sessions share the newest limits any session on the machine has heard through a small file:
+The 5h and 7d limits belong to your account, but a session only learns them from its own API responses, so a session that has been idle for days keeps showing the numbers from its last response. Sessions on the same machine share their readings through one small JSON file:
 
 ```
-${CLAUDE_CONFIG_DIR:-~/.claude}/statusline-rate-limits
+${CLAUDE_CONFIG_DIR:-~/.claude}/statusline-rate-limits.json
 ```
 
-It holds two lines (`five <used %> <resets_at>` and `seven <used %> <resets_at>`), only percentages and timestamps, with mode 600. For each window the newer window (later reset time) wins. Within the same window the newest reading wins: a session whose cost changed since its last run has just had an API response, so it writes its limits to the file, and every other session shows the file's values. Taking the higher of the two numbers instead would go wrong when usage drops inside a window, for example after a usage reset: an idle session would keep putting the old, higher number back until the window ended. Expired entries are ignored. A brand-new session, or one just after `/compact`, shows the shared values instead of `-`. The pacing ceiling and reset countdown are computed from the merged values as usual.
+```json
+{
+  "version": 1,
+  "five_hour": { "used_percentage": 1, "resets_at": 1792657200, "observed_at": 1792648290, "session_id": "3f9c2a71-8d4e-4b1a-9c6f-2e7d5a8b1c04" },
+  "seven_day": { "used_percentage": 3, "resets_at": 1792832400, "observed_at": 1792648290, "session_id": "3f9c2a71-8d4e-4b1a-9c6f-2e7d5a8b1c04" }
+}
+```
 
-It only helps while another session is active on the same machine and account. With no session running, nothing refreshes the numbers. The file is safe to delete at any time, and `CLAUDE_CONFIG_DIR` keeps separate accounts apart.
+- `used_percentage` and `resets_at` are Claude Code's own values. `observed_at` (Unix seconds) is when a session that had just heard from the API last confirmed the value; it is refreshed at most once a minute while the value stays the same. `session_id` is that session, the same id the status line shows and the session's transcript file is named after. A window is left out when no session has a reading for it.
+- Only a session that has just heard from the API writes the file. Claude Code gives no timestamp for the limits, so the script uses the cost: it only goes up when a response arrives. A session counts as fresh when its cost went up since its last run, or when one of its own readings changed (a rate-limited response can change the readings without costing anything).
+- Every other session shows the file's reading, and its own only when the file has none for that window, for example right after an upgrade, before any session has written the file. Idle sessions never write, so an old reading can't spread.
+- The newest reading wins, not the highest, because usage can drop inside a window, for example after a usage reset. Nothing compares times, so a clock that jumps can't mislead it; the timestamps are there for people and tools reading the file.
+- The file is written to a temporary file and moved into place, so readers always see a whole file. It has mode 600 and holds only numbers and session ids. A missing, empty, corrupt or unexpectedly large file is ignored and replaced by the next write. A file with a newer `version`, from a newer copy of this script, is left alone.
+
+The pacing ceiling and reset countdown are computed from the shown values as usual. Sharing only helps while another session is active on the same machine and account: with no session running, nothing refreshes the numbers. The file is safe to delete at any time, and `CLAUDE_CONFIG_DIR` keeps separate accounts apart. Earlier versions used a two-line text file, `statusline-rate-limits`; the script deletes it the first time it runs.
 
 ## Performance
 
@@ -119,8 +131,10 @@ Claude Code runs the whole script from scratch on every refresh, so with `refres
 - One `jq` call parses every field at once.
 - Each table cell's display width is measured once and reused, both to size the columns and to pad the cell.
 - Everything else stays inside bash: text widths for the table are counted in bash, helpers return values in variables instead of `$(...)` (each of which forks a subshell), the clock uses bash's built-in time formatting, the cost math is integer math, and the git branch is read directly from `.git/HEAD`.
-- Two rare fallbacks start a process: `wc -L` measures cells containing characters the script doesn't know the width of (emoji, CJK), and `git` handles unusual repository layouts.
-- The two state files are only written when their contents change.
+- The shared rate-limit file is read with a bash builtin and parsed in the same `jq` call.
+- A few rare cases start a process: `wc -L` measures cells containing characters the script doesn't know the width of (emoji, CJK), `git` handles unusual repository layouts, `mkdir` and `find` run once when a new session starts, and `mv` replaces the shared file when a session has a newer reading.
+- The cost state is only written when it changes, and the shared file only when a session has a newer reading (or once a minute while one keeps confirming it). `umask` makes new files private, so no `chmod` is needed.
+- The whole script runs inside one function, which bash reads in full before running it. That costs a few milliseconds per run and means replacing the file while sessions are running it can never execute a mix of old and new code.
 
 Measured per run:
 
@@ -136,7 +150,7 @@ Most of what is left is the fixed cost of starting bash and `jq`, which is highe
 
 - [Claude Code CLI](https://claude.ai/code)
 - `bash` 4.2 or newer (any current Linux; on macOS install a newer bash with Homebrew; on Windows use the bash that comes with [Git for Windows](https://gitforwindows.org/))
-- [`jq`](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq` / `winget install jqlang.jq`)
+- [`jq`](https://jqlang.github.io/jq/) 1.6 or newer (`brew install jq` / `apt install jq` / `winget install jqlang.jq`)
 
 The script switches to a UTF-8 locale by itself if none is set, so the table borders line up.
 
@@ -146,9 +160,11 @@ The script switches to a UTF-8 locale by itself if none is set, so the table bor
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/glenbenatiro/claude-code-cli-status-line/main/statusline.sh \
-  -o ~/.claude/statusline.sh
+  -o ~/.claude/statusline.sh.new && mv ~/.claude/statusline.sh.new ~/.claude/statusline.sh
 chmod +x ~/.claude/statusline.sh
 ```
+
+It downloads to a temporary file and moves it into place, so sessions already running the old script are never handed a half-written file.
 
 ### 2. Configure Claude Code
 
@@ -178,7 +194,8 @@ This works with Claude Code running natively on Windows (in PowerShell, Command 
 2. Download the script with the `curl` command from step 1, run in Git Bash. From PowerShell, use `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest` in Windows PowerShell):
 
    ```powershell
-   curl.exe -fsSL https://raw.githubusercontent.com/glenbenatiro/claude-code-cli-status-line/main/statusline.sh -o "$HOME\.claude\statusline.sh"
+   curl.exe -fsSL https://raw.githubusercontent.com/glenbenatiro/claude-code-cli-status-line/main/statusline.sh -o "$HOME\.claude\statusline.sh.new"
+   if ($?) { Move-Item -Force "$HOME\.claude\statusline.sh.new" "$HOME\.claude\statusline.sh" }
    ```
 
 3. In `settings.json`, call Git Bash by its full path:
@@ -202,13 +219,13 @@ Paths show as Windows paths (`dir C:\Users\you\project`), which is expected. Eac
 A working install leaves just two files next to your settings:
 
 - `statusline.sh`: the script itself
-- `statusline-rate-limits`: the shared rate-limit file, created on first run (see Shared rate limits)
+- `statusline-rate-limits.json`: the shared rate-limit file, created when a session first has a reading to share (see Shared rate limits)
 
 The per-turn cost state lives outside `~/.claude`, under `${XDG_STATE_HOME:-~/.local/state}/claude-statusline/`.
 
 ### Updating
 
-Run the same `curl` command from step 1 again. It replaces the script in place, and running sessions pick it up on their next refresh; no restart needed. The settings don't change. Older settings that pass an argument, like `bash ~/.claude/statusline.sh table`, keep working because the argument is ignored.
+Run the same command from step 1 again (on Windows, both PowerShell lines). Use it as written rather than `curl -o` or `cp` straight onto `statusline.sh`, which rewrite the file in place. Running sessions pick up the new script on their next refresh; no restart needed. When updating from a version that used the old `statusline-rate-limits` text file, the new script deletes it by itself. The settings don't change. Older settings that pass an argument, like `bash ~/.claude/statusline.sh table`, keep working because the argument is ignored.
 
 ### Replacing an older status line
 
@@ -216,7 +233,7 @@ If you used a different status line script before, point `statusLine.command` at
 
 ### Uninstalling
 
-Remove the `statusLine` block from `~/.claude/settings.json`, then delete `~/.claude/statusline.sh`, `~/.claude/statusline-rate-limits`, and `~/.local/state/claude-statusline/`.
+Remove the `statusLine` block from `~/.claude/settings.json`, then delete `~/.claude/statusline.sh`, `~/.claude/statusline-rate-limits.json` (and `~/.claude/statusline-rate-limits` if an older version left it), and `~/.local/state/claude-statusline/`.
 
 ## Previewing changes
 
@@ -235,7 +252,7 @@ PLAIN=1 ./preview.sh      # strip colors
 
 To check that the borders line up, every row of a fixture should have the same width: `PLAIN=1 ./preview.sh full | LC_ALL=C.UTF-8 grep '^[│╭├╰]' | LC_ALL=C.UTF-8 awk '{print length}' | sort -u` should print a single number.
 
-`test.sh` checks how sessions share the rate limits. It runs the script as several sessions in turn (an idle one, an active one, one after a usage reset, one on a later window) and checks the 7d cell and the shared file after each step. It also uses temporary directories. It prints `all passed`, or the steps that failed and exits with an error.
+`test.sh` checks how sessions share the rate limits, and that bad input can't break the status line. It runs the script as several sessions in turn (idle, active, after a usage reset, after an upgrade, with a corrupt, oversized or newer-version shared file, with a read-only config dir, and 20 at once) and checks what each one shows and what the shared file holds. It uses temporary directories, prints `all passed` or the steps that failed, and exits with an error if any did.
 
 The field reference is the [Claude Code status line docs](https://code.claude.com/docs/en/statusline).
 
@@ -250,7 +267,8 @@ If you are asking an LLM to install or modify this for you, pass it this context
 - On native Windows, the `command` must call Git Bash by full path (`"\"C:/Program Files/Git/bin/bash.exe\" ~/.claude/statusline.sh"`), because a plain `bash` may start WSL. See the Windows section
 - Paths in the JSON may be Windows paths with `\` separators. Code must never assume `/`, and any loop that walks up a path must be sure to end
 - After editing, `settings.json` must remain valid JSON. Merge the `statusLine` block into the existing file; do not replace it
-- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effects are two small files: the per-session cost state file (under `XDG_STATE_HOME`) and the shared rate-limit file (under `CLAUDE_CONFIG_DIR`, default `~/.claude`), both described above
+- The script reads JSON from stdin (piped from Claude Code) and writes colored text to stdout. It needs no credentials. Its only side effects are small files: the per-session cost state files (under `XDG_STATE_HOME`; ones untouched for 30 days are pruned when a new session starts) and the shared rate-limit file `statusline-rate-limits.json` (under `CLAUDE_CONFIG_DIR`, default `~/.claude`), both described above
+- To install or update, download to a temporary file and `mv` it over `statusline.sh` (the command in step 1), never write it in place
 - It runs every second, so changes should not add process launches per refresh; see Performance and Customization
 
 ## Customization

@@ -7,25 +7,44 @@
 # It runs every second, so it avoids starting processes: helpers set variables (REPLY or a named
 # one) instead of printing into $(...), which would fork a subshell each time. Per refresh it
 # starts one jq, and otherwise only touches the filesystem when a state file changes.
+# extglob must be on before main is read, because vw() uses an extglob pattern.
 shopt -s extglob
+# Files this script creates (the cost state and the shared rate-limit file) are private to the user.
+umask 077
+
+# Everything runs inside main, which bash reads in full before running any of it. Replacing this file
+# while a session is running it (an update) then can't make that run execute half old, half new code.
+main() {
 # Padding uses ${#var}, which counts bytes unless the locale is UTF-8. Git Bash on Windows often
 # starts with no locale, so "·" and "≤" would count as 2-3 columns and the borders would go jagged.
 case "${LC_ALL:-${LC_CTYPE:-$LANG}}" in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) export LC_ALL=C.UTF-8 ;; esac
 
+# The shared rate-limit file (see "Shared rate limits" below) is read here, with a builtin, so the one
+# jq call can parse it too. Anything near 8 KB is far bigger than this script ever writes: ignore it,
+# and the next write replaces it.
+cfg_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+rl_file="$cfg_dir/statusline-rate-limits.json"
+rl_json=""
+[ -f "$rl_file" ] && [ -r "$rl_file" ] && IFS= read -r -N 8192 rl_json < "$rl_file"
+[ "${#rl_json}" -ge 8192 ] && rl_json=""
+
 # ---------------------------------------------------------------------------
 # Parse every field in one jq pass. @sh quotes each value so eval is safe.
-# Missing/null fields become empty strings.
+# Missing/null fields become empty strings, and so does a number field holding anything but a number
+# of sane size, so one bad value can't stop jq halfway or break the bash arithmetic later.
+# $sh is the shared file: an object, or null when it is missing, empty or not JSON.
+# MSYS2_ARG_CONV_EXCL stops Git Bash on Windows rewriting arguments that look like paths.
 # ---------------------------------------------------------------------------
-eval "$(jq -r '
+eval "$(MSYS2_ARG_CONV_EXCL='*' jq -r --arg rl "$rl_json" '
   def s(f): (try f catch null) as $x | if $x == null then "" else ($x | tostring) end | @sh;
-  def n(f): (try f catch null) as $x | if $x == null then "" else ($x | round | tostring) end | @sh;
+  def n(f): (try f catch null) as $x | if ($x | type) == "number" and $x > -1e15 and $x < 1e15 then ($x | round | tostring) else "" end | @sh;
+  (if $rl == "" then null else ([try ($rl | fromjson)] | .[0]) end | if type == "object" then . else null end) as $sh |
   "model=\(s(.model.id // .model.display_name))",
   "effort=\(s(.effort.level))",
   "sname=\(s(.session_name))",
   "sid=\(s(.session_id))",
   "prompt_id=\(s(.prompt_id))",
   "ver=\(s(.version))",
-  "cost=\(s(.cost.total_cost_usd))",
   "cost_u=\(n(.cost.total_cost_usd * 1000000))",
   "dur_ms=\(n(.cost.total_duration_ms))",
   "cwd=\(s(.workspace.current_dir))",
@@ -39,10 +58,19 @@ eval "$(jq -r '
   "cu_cw=\(n(.context_window.current_usage.cache_creation_input_tokens))",
   "cu_cr=\(n(.context_window.current_usage.cache_read_input_tokens))",
   "cu_out=\(n(.context_window.current_usage.output_tokens))",
-  "five_pct=\(n(.rate_limits.five_hour.used_percentage))",
-  "five_reset=\(n(.rate_limits.five_hour.resets_at))",
-  "seven_pct=\(n(.rate_limits.seven_day.used_percentage))",
-  "seven_reset=\(n(.rate_limits.seven_day.resets_at))",
+  "o5p=\(n(.rate_limits.five_hour.used_percentage))",
+  "o5r=\(n(.rate_limits.five_hour.resets_at))",
+  "o7p=\(n(.rate_limits.seven_day.used_percentage))",
+  "o7r=\(n(.rate_limits.seven_day.resets_at))",
+  "fver=\(n($sh.version))",
+  "f5p=\(n($sh.five_hour.used_percentage))",
+  "f5r=\(n($sh.five_hour.resets_at))",
+  "f5t=\(n($sh.five_hour.observed_at))",
+  "f5s=\(s($sh.five_hour.session_id))",
+  "f7p=\(n($sh.seven_day.used_percentage))",
+  "f7r=\(n($sh.seven_day.resets_at))",
+  "f7t=\(n($sh.seven_day.observed_at))",
+  "f7s=\(s($sh.seven_day.session_id))",
   "pc=\(s(if .prompt_cache then true else null end))",
   "pc_obs=\(s(.prompt_cache.caching_observed))",
   "pc_warm=\(s(.prompt_cache.warm))",
@@ -50,6 +78,8 @@ eval "$(jq -r '
   "pc_hit=\(n(.prompt_cache.hit_ratio * 100))",
   "pc_recache=\(n(.prompt_cache.recache_tokens_if_cold))"
 ' 2>/dev/null)"
+# The session id names a state file and goes into the shared file, so accept only what a real id uses.
+[[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || sid=""
 
 printf -v now '%(%s)T' -1
 
@@ -162,23 +192,40 @@ join_by() { local sep="$1"; shift; local x; REPLY=""; for x in "$@"; do [ -z "$x
 # Pieces shown in the table
 # ---------------------------------------------------------------------------
 sid_short="${sid:0:8}"
-cost_fmt=""; [ -n "$cost" ] && printf -v cost_fmt '$%.2f' "$cost"
+# Formatted from whole micro-dollars rather than with printf %.2f, which reads the number with the
+# locale's decimal separator and fails where that is a comma.
+cost_fmt=""
+if [ -n "$cost_u" ]; then
+  c=$(( (cost_u + 5000) / 10000 )); [ "$c" -lt 0 ] && c=0   # to cents
+  printf -v cost_fmt '$%d.%02d' $(( c / 100 )) $(( c % 100 ))
+fi
 
 # Cost added by the most recent turn. The status line is stateless, so remember per session the
 # cost when the current prompt began (= the last cost seen before prompt_id changed).
-# Costs are kept in whole micro-dollars so the math stays in bash.
+# Costs are kept in whole micro-dollars so the math stays in bash. The same file keeps this session's
+# last 5h and 7d readings, to tell when the session is fresh (see "Shared rate limits" below).
 cost_delta_fmt="" state_file="" rl_fresh=0
 if [ -n "$sid" ] && [ -n "$cost_u" ]; then
   state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/claude-statusline"
   state_file="$state_dir/$sid"
-  st_prompt=""; st_start=""; st_last=""
-  [ -r "$state_file" ] && read -r st_prompt st_start st_last < "$state_file"
+  st_prompt="" st_start="" st_last="" st_r5p="" st_r5r="" st_r7p="" st_r7r=""
+  [ -r "$state_file" ] && read -r st_prompt st_start st_last st_r5p st_r5r st_r7p st_r7r _ < "$state_file"
   # Files from older versions stored dollars as decimals; start a fresh baseline for those.
   [[ "$st_start" =~ ^[0-9]+$ && "$st_last" =~ ^[0-9]+$ ]] || st_prompt=""
-  # The cost only changes when an API response arrives, and that response also brought the rate
-  # limits, so a changed cost means this session's limits are fresh (see the shared rate limits below).
-  [ -n "$st_prompt" ] && [ "$cost_u" != "$st_last" ] && rl_fresh=1
-  cur_prompt="${prompt_id:--}"
+  # Fresh: this session has just heard from the API, so its 5h and 7d readings are the newest anywhere.
+  # Its cost only goes up when a response arrives, and a response can also change a reading without
+  # costing anything (a 429). A reading that disappears is Claude Code dropping a window at its reset,
+  # not news. Files from older versions keep no readings (3 fields), so after an upgrade a session
+  # isn't fresh until its cost goes up or a reading changes.
+  if [ -n "$st_prompt" ]; then
+    [ "$cost_u" -gt "$st_last" ] && rl_fresh=1
+    if [ -n "$st_r7r" ]; then
+      [ -n "$o5p" ] && [ "$o5p ${o5r:--}" != "$st_r5p $st_r5r" ] && rl_fresh=1
+      [ -n "$o7p" ] && [ "$o7p ${o7r:--}" != "$st_r7p $st_r7r" ] && rl_fresh=1
+    fi
+  fi
+  # The state file is space-separated, so keep the prompt id to characters a real id uses.
+  cur_prompt="${prompt_id//[^A-Za-z0-9_-]/}"; cur_prompt="${cur_prompt:--}"
   if   [ -z "$st_prompt" ];              then turn_start="$cost_u"     # no baseline yet
   elif [ "$cur_prompt" != "$st_prompt" ]; then turn_start="$st_last"    # new turn began
   else                                        turn_start="$st_start"
@@ -192,50 +239,90 @@ fi
 dur_fmt=""; [ -n "$dur_ms" ] && { fmt_hms $(( dur_ms / 1000 )); dur_fmt="$REPLY"; }
 
 level_color "${ctx_used:-0}"; ctx_c="$REPLY"
-# Rate limits belong to the account, not the session, and a session only learns them from its own
-# API responses, so an idle session keeps showing old numbers. Share the newest values between
-# sessions through a small file in the Claude config dir. Per window: the newer window (later
-# resets_at) wins. Within the same window, a session that just got an API response (rl_fresh) writes
-# its values and every other session shows the file's. Usage can drop inside a window (a usage
-# reset), so "the higher % wins" would keep showing the old number until the window ends.
-rl_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/statusline-rate-limits"
-rl_tol=300   # resets_at values this close (seconds) are the same window
-f5p="" f5r="" f7p="" f7r=""
-if [ -r "$rl_file" ]; then
-  while read -r rl_k rl_p rl_r _; do
-    [[ "$rl_p" =~ ^[0-9]+$ && "$rl_r" =~ ^[0-9]+$ && "$rl_r" -gt "$now" ]] || continue
-    case "$rl_k" in five) f5p=$rl_p f5r=$rl_r ;; seven) f7p=$rl_p f7r=$rl_r ;; esac
-  done < "$rl_file"
+
+# ---------------------------------------------------------------------------
+# Shared rate limits
+# ---------------------------------------------------------------------------
+# The 5h and 7d limits belong to the account, not the session, and a session only learns them from its
+# own API responses, so an idle session keeps showing old numbers. Sessions share them through
+# statusline-rate-limits.json in the Claude config dir (read near the top):
+#   { "version": 1,
+#     "five_hour": { "used_percentage": 1, "resets_at": <epoch>, "observed_at": <epoch>, "session_id": "..." },
+#     "seven_day": { ... } }
+# Only a fresh session writes it, so it always holds the newest reading any session has had. Every
+# other session shows the file's reading, and its own only when the file has none for that window.
+# observed_at (when a fresh session last confirmed the value) and session_id (which session) are for
+# people reading the file; nothing here compares times, so a clock that jumps can't mislead it.
+rl_ver=1 rl_newer=0 f5ok=0 f7ok=0
+
+# rl_valid_entry pct resets_at observed_at session: true when a file entry is usable
+rl_valid_entry() {
+  [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ && "$3" =~ ^[0-9]+$ && "$4" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$2" -gt "$now" ]
+}
+if [ "$fver" = "$rl_ver" ]; then
+  rl_valid_entry "$f5p" "$f5r" "$f5t" "$f5s" && f5ok=1
+  rl_valid_entry "$f7p" "$f7r" "$f7t" "$f7s" && f7ok=1
+elif [[ "$fver" =~ ^[0-9]+$ ]] && [ "$fver" -gt "$rl_ver" ]; then
+  rl_newer=1   # written by a newer version of this script: don't use it, and don't overwrite it
 fi
 
-# merge_limit own_pct own_reset file_pct file_reset own_fresh -> RL_P RL_R, and RL_CHANGED=1 when the file needs updating
-merge_limit() {
-  local op="$1" or="$2" fp="$3" fr="$4" fresh="$5" d
-  RL_CHANGED=0
-  if [ -z "$fp" ]; then RL_P="$op"; RL_R="$or"; [ -n "$op" ] && [ -n "$or" ] && RL_CHANGED=1; return; fi
-  if [ -z "$op" ]; then RL_P="$fp"; RL_R="$fr"; return; fi
-  if [ -z "$or" ]; then RL_P="$op"; RL_R=""; return; fi
-  d=$(( fr - or ))
-  if   [ "$d" -gt "$rl_tol" ];        then RL_P="$fp"; RL_R="$fr"                    # the file has a newer window
-  elif [ "$d" -lt $(( -rl_tol )) ];   then RL_P="$op"; RL_R="$or"; RL_CHANGED=1      # this session has the newer window
-  elif [ "$fresh" = 1 ];              then RL_P="$op"; RL_R="$or"; [ "$op" -ne "$fp" ] && RL_CHANGED=1   # same window, this session just heard from the API
-  else RL_P="$fp"; RL_R="$fr"                                                        # same window, the file is as new or newer
+# pick_limit own_pct own_reset file_ok file_pct file_reset file_observed -> RL_P RL_R to show, and
+# RL_WRITE=1 when this session should write its reading to the file
+pick_limit() {
+  local op="$1" or="$2" fok="$3" fp="$4" fr="$5" ft="$6" own_ok=0
+  RL_WRITE=0
+  [[ "$op" =~ ^[0-9]+$ && "$or" =~ ^[0-9]+$ ]] && [ "$or" -gt "$now" ] && own_ok=1
+  if [ "$own_ok" = 1 ] && [ "$rl_fresh" = 1 ]; then
+    RL_P="$op" RL_R="$or"
+    # Write when the file differs, or hasn't been confirmed for a minute: that keeps observed_at
+    # current without a write on every response.
+    if [ "$fok" = 0 ] || [ "$op" != "$fp" ] || [ "$or" != "$fr" ] || [ $(( now - ft )) -ge 60 ]; then RL_WRITE=1; fi
+  elif [ "$fok" = 1 ];    then RL_P="$fp" RL_R="$fr"
+  elif [ "$own_ok" = 1 ]; then RL_P="$op" RL_R="$or"
+  else RL_P="" RL_R=""
   fi
 }
-merge_limit "$five_pct" "$five_reset" "$f5p" "$f5r" "$rl_fresh";   five_pct="$RL_P";  five_reset="$RL_R";  rl_write=$RL_CHANGED
-merge_limit "$seven_pct" "$seven_reset" "$f7p" "$f7r" "$rl_fresh"; seven_pct="$RL_P"; seven_reset="$RL_R"; [ "$RL_CHANGED" = 1 ] && rl_write=1
-if [ "$rl_write" = 1 ] && [ -d "${rl_file%/*}" ]; then
-  rl_tmp="$rl_file.tmp.$$"
-  {
-    [ -n "$five_pct" ]  && [ -n "$five_reset" ]  && echo "five $five_pct $five_reset"
-    [ -n "$seven_pct" ] && [ -n "$seven_reset" ] && echo "seven $seven_pct $seven_reset"
-  } > "$rl_tmp" 2>/dev/null && chmod 600 "$rl_tmp" 2>/dev/null && mv -f "$rl_tmp" "$rl_file" 2>/dev/null || rm -f "$rl_tmp" 2>/dev/null
-fi
+pick_limit "$o5p" "$o5r" "$f5ok" "$f5p" "$f5r" "$f5t"; five_pct="$RL_P"  five_reset="$RL_R"  w5=$RL_WRITE
+pick_limit "$o7p" "$o7r" "$f7ok" "$f7p" "$f7r" "$f7t"; seven_pct="$RL_P" seven_reset="$RL_R" w7=$RL_WRITE
 
-# Save the cost state only now. Claude Code kills a run when a newer update arrives; saving it before
-# the shared file would mark this response as seen even if the run died before sharing its limits.
-if [ -n "$state_file" ] && [ "$cur_prompt $turn_start $cost_u" != "$st_prompt $st_start $st_last" ]; then
-  { [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null; } && printf '%s %s %s\n' "$cur_prompt" "$turn_start" "$cost_u" > "$state_file"
+# rl_entry key pct resets_at observed_at session: append one window's entry to rl_out
+rl_entry() { printf -v REPLY ',\n  "%s": { "used_percentage": %s, "resets_at": %s, "observed_at": %s, "session_id": "%s" }' "$@"; rl_out+="$REPLY"; }
+
+# Write each window from this session's reading when it has a newer one, else keep the file's entry.
+# Every value is a validated number or session id, so printf can't produce broken JSON. A failed write
+# leaves the cost state unsaved (rl_saved=0), so the next run is fresh again and retries. A config dir
+# that can't be written to is not retried, since that would cost a process every second.
+rl_saved=1
+if [ "$w5$w7" != 00 ] && [ "$rl_newer" = 0 ] && [ -w "$cfg_dir" ]; then
+  rl_out="{"$'\n'"  \"version\": $rl_ver"
+  if   [ "$w5" = 1 ];   then rl_entry five_hour "$o5p" "$o5r" "$now" "$sid"
+  elif [ "$f5ok" = 1 ]; then rl_entry five_hour "$f5p" "$f5r" "$f5t" "$f5s"; fi
+  if   [ "$w7" = 1 ];   then rl_entry seven_day "$o7p" "$o7r" "$now" "$sid"
+  elif [ "$f7ok" = 1 ]; then rl_entry seven_day "$f7p" "$f7r" "$f7t" "$f7s"; fi
+  rl_out+=$'\n}\n'
+  rl_tmp="$rl_file.tmp.$$"
+  { printf '%s' "$rl_out" > "$rl_tmp" && mv -f "$rl_tmp" "$rl_file"; } 2>/dev/null || { rl_saved=0; [ -e "$rl_tmp" ] && rm -f "$rl_tmp" 2>/dev/null; }
+fi
+# Versions before the JSON file shared a two-line text file. Nothing reads it now, so remove it once.
+[ -e "$cfg_dir/statusline-rate-limits" ] && [ -w "$cfg_dir" ] && rm -f "$cfg_dir/statusline-rate-limits" 2>/dev/null
+
+# Save the cost state only now. Claude Code kills a run when a newer update arrives; saving it earlier
+# would mark this response as seen even if the run died before sharing its readings.
+if [ -n "$state_file" ] && [ "$rl_saved" = 1 ]; then
+  st_new="$cur_prompt $turn_start $cost_u ${o5p:--} ${o5r:--} ${o7p:--} ${o7r:--}"
+  if [ "$st_new" != "$st_prompt $st_start $st_last $st_r5p $st_r5r $st_r7p $st_r7r" ]; then
+    if [ ! -e "$state_file" ]; then
+      # A new session: create the folder if needed, and tidy up once rather than on every refresh:
+      # state files untouched for 30 days, and shared-file temp files left by runs killed mid-write.
+      # Only when the folder is writable: otherwise the file never appears and this would run every time.
+      [ -d "$state_dir" ] || mkdir -p "$state_dir" 2>/dev/null
+      if [ -w "$state_dir" ]; then
+        find "$state_dir" -maxdepth 1 -type f -mtime +30 -delete 2>/dev/null
+        find "$cfg_dir" -maxdepth 1 -type f -name 'statusline-rate-limits.json.tmp.*' -mmin +60 -delete 2>/dev/null
+      fi
+    fi
+    { printf '%s\n' "$st_new" > "$state_file"; } 2>/dev/null
+  fi
 fi
 
 pace_ceiling "$five_reset" 3600 5;    five_ceil="$REPLY"
@@ -385,3 +472,6 @@ design_table() {
 printf '%s' "$WHITE"
 design_table
 printf '\033[0m'
+}
+
+main "$@"; exit
